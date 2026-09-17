@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Site {
+  id        String     @id @default(uuid())
+  url       String
+  scans     Scan[]
+  siteScans SiteScan[]
+  createdAt DateTime   @default(now())
+}
+
+model SiteScan {
+  id            String   @id @default(uuid())
+  siteId        String
+  site          Site     @relation(fields: [siteId], references: [id])
+  status        String   @default("processing") // processing | completed | failed
+  averageScore  Int?
+  siteLevelResults Json?
+  pageCount     Int
+  completedPages Int     @default(0)
+  scans         Scan[]
+  createdAt     DateTime @default(now())
+}
+
+model Scan {
+  id         String    @id @default(uuid())
+  siteId     String
+  site       Site      @relation(fields: [siteId], references: [id])
+  siteScanId String?
+  siteScan   SiteScan? @relation(fields: [siteScanId], references: [id])
+  url        String    @default("")
+  score      Int
+  results    Json
+  createdAt  DateTime  @default(now())
+}
