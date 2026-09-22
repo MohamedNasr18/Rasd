@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
-const DEFAULT_MAX_PAGES = 7; 
+const DEFAULT_MAX_PAGES = 3; 
 const CRAWL_DELAY_MS = 600;
 
 @Injectable()
@@ -94,7 +94,7 @@ export class SiteCrawlerService {
 private async crawlInternalLinks(startUrl: string, maxPages: number, disallowedPaths: string[]): Promise<string[]> {
   const base = new URL(startUrl);
   const visited = new Set<string>();
-  const queue: string[] = [this.normalizeUrl(startUrl)];   // ← normalize هنا كمان
+  const queue: string[] = [this.normalizeUrl(startUrl)];   
   const discovered: string[] = [];
 
   while (queue.length > 0 && discovered.length < maxPages) {
@@ -118,7 +118,7 @@ private async crawlInternalLinks(startUrl: string, maxPages: number, disallowedP
           const isAllowedPath = this.isAllowed(resolved.pathname, disallowedPaths);
 
           if (isSameHost && !isAssetFile && isAllowedPath) {
-            const clean = this.normalizeUrl(resolved.href);   // ← بدل السطر القديم
+            const clean = this.normalizeUrl(resolved.href);  
             if (!visited.has(clean)) queue.push(clean);
           }
         } catch { /* ignore malformed hrefs */ }

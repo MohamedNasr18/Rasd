@@ -15,26 +15,47 @@ model Site {
 }
 
 model SiteScan {
-  id            String   @id @default(uuid())
-  siteId        String
-  site          Site     @relation(fields: [siteId], references: [id])
-  status        String   @default("processing") // processing | completed | failed
-  averageScore  Int?
+  id               String   @id @default(uuid())
+  siteId           String
+  site             Site     @relation(fields: [siteId], references: [id])
+  status           String   @default("processing")
+  averageScore     Int?
+  pageCount        Int
+  completedPages   Int      @default(0)
   siteLevelResults Json?
-  pageCount     Int
-  completedPages Int     @default(0)
-  scans         Scan[]
-  createdAt     DateTime @default(now())
+  aiReport         Json?
+  reportStatus     String?  // null | "processing" | "completed" | "failed"
+  scans            Scan[]
+  conversations    Conversation[]
+  createdAt        DateTime @default(now())
 }
 
 model Scan {
+  id            String   @id @default(uuid())
+  siteId        String
+  site          Site     @relation(fields: [siteId], references: [id])
+  siteScanId    String?
+  siteScan      SiteScan? @relation(fields: [siteScanId], references: [id])
+  url           String   @default("")
+  score         Int
+  results       Json
+  triggeredBy   String   @default("scan") // "scan" | "agent_rescan"
+  previousScanId String? 
+  createdAt     DateTime @default(now())
+}
+model Conversation {
   id         String    @id @default(uuid())
-  siteId     String
-  site       Site      @relation(fields: [siteId], references: [id])
-  siteScanId String?
-  siteScan   SiteScan? @relation(fields: [siteScanId], references: [id])
-  url        String    @default("")
-  score      Int
-  results    Json
+  siteScanId String
+  siteScan   SiteScan  @relation(fields: [siteScanId], references: [id])
+  messages   Message[]
   createdAt  DateTime  @default(now())
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+  role           String       // "user" | "assistant"
+  content        String       @db.Text
+  createdAt      DateTime     @default(now())
 }

@@ -21,5 +21,6 @@ import { SiteAggregationProcessor } from './site-aggregation.processor.js';
     SiteCrawlerService,
     SiteAggregationProcessor,
   ],
+  exports: [SeoAnalyzerService, RendererService],
 })
 export class SeoModule {}

@@ -28,9 +28,7 @@ export class RendererService {
         timeout: 30000,
       });
 
-      // Trigger lazy-loaded images by scrolling through the page.
-      // This fires Intersection Observer callbacks so data-src images get their
-      // src swapped before we capture the HTML.
+     
       await page.evaluate(async () => {
         await new Promise<void>((resolve) => {
           const distance = 300;
@@ -39,7 +37,6 @@ export class RendererService {
             window.scrollBy(0, distance);
             if (window.scrollY + window.innerHeight >= document.body.scrollHeight) {
               clearInterval(timer);
-              // Scroll back to top and give a final moment for any remaining images
               window.scrollTo(0, 0);
               resolve();
             }
@@ -47,7 +44,6 @@ export class RendererService {
         });
       });
 
-      // Brief wait after scroll to allow any triggered network requests to settle
       await new Promise((r) => setTimeout(r, 1000));
 
       const html = await page.content();

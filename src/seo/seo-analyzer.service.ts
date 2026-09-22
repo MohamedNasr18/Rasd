@@ -582,10 +582,8 @@ private async checkUrlReachable(url: string): Promise<number> {
 }
 
 private async checkUrlReachableWithRetry(url: string): Promise<number> {
-  // First attempt (uses cache if available)
   const firstResult = await this.checkUrlReachable(url);
 
-  // Only retry on timeout (status 0) — clear cache and try once more
   if (firstResult === 0) {
     this.linkCheckCache.delete(url);
     const retryResult = await this.checkUrlReachable(url);
@@ -613,8 +611,7 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
     return { check: 'broken_internal_links', status: 'pass', message: 'No internal links found to check.', weight: 2 };
   }
 
-  // Run checks with global rate limiting (via acquireLinkCheckSlot) and retry on timeout.
-  // Cache hits skip the rate limiter entirely, so shared nav/footer links are fast.
+  
   const statuses = await Promise.all(sample.map((link) => this.checkUrlReachableWithRetry(link)));
 
   const brokenLinks = sample

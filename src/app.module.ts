@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { SeoModule } from './seo/seo.module.js';
+import { ReportModule } from './report/report.module.js';
+import { ChatModule } from './chat/chat.module.js';
 
 @Module({
   imports: [
@@ -13,6 +15,8 @@ import { SeoModule } from './seo/seo.module.js';
     }),
     PrismaModule,
     SeoModule,
+    ReportModule,
+    ChatModule,
   ],
 })
 export class AppModule {}
