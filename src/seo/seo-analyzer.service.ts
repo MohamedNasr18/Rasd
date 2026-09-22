@@ -24,10 +24,6 @@ export class SeoAnalyzerService implements OnModuleDestroy {
   private readonly linkCheckCache = new Map<string, { status: number; timestamp: number }>();
   private readonly CACHE_TTL_MS = 10 * 60 * 1000;
   private readonly cleanupInterval: NodeJS.Timeout;
-
-  // Global rate limiter for link checking — shared across ALL concurrent page scans.
-  // Limits to 3 simultaneous HTTP requests total, with 300ms between each slot release,
-  // to avoid flooding the target server when scanning multiple pages in parallel.
   private readonly MAX_CONCURRENT_LINK_CHECKS = 3;
   private readonly LINK_CHECK_SLOT_DELAY_MS = 300;
   private activeLinkChecks = 0;
@@ -74,7 +70,6 @@ export class SeoAnalyzerService implements OnModuleDestroy {
     clearInterval(this.cleanupInterval);
   }
 
-  // Page-level checks — called once per page
   async analyze(
     html: string,
     url: string,
@@ -108,7 +103,6 @@ export class SeoAnalyzerService implements OnModuleDestroy {
     return { score, results };
   }
 
-  // Site-level checks — called ONCE per site scan, not per page
   async analyzeSiteLevel(url: string): Promise<SeoCheckResult[]> {
     return [
       await this.checkRobotsTxtContent(url),
@@ -116,7 +110,6 @@ export class SeoAnalyzerService implements OnModuleDestroy {
     ];
   }
 
-  // ===== EXISTING CHECKS =====
 
   private checkTitle($: cheerio.CheerioAPI): SeoCheckResult {
   const title = $('head > title').first().text().trim();
@@ -160,21 +153,11 @@ export class SeoAnalyzerService implements OnModuleDestroy {
   }
 
   private checkImageAlts($: cheerio.CheerioAPI): SeoCheckResult {
-    // Only count images that are actually rendered/visible:
-    // - Must have a real src (not empty, not a blank data URI placeholder)
-    // - OR have a srcset
-    // Excludes lazy-loaded images that haven't resolved yet (src="" or tiny gif placeholders)
-    // and images that use data-src/data-srcset only (not yet swapped by JS intersection observer)
     const allImages = $('img');
     const loadedImages = allImages.filter((_, el) => {
       const src = $(el).attr('src')?.trim() ?? '';
       const srcset = $(el).attr('srcset')?.trim() ?? '';
 
-      // Common lazy-load placeholder patterns to exclude:
-      // - empty src
-      // - 1x1 transparent GIF (data:image/gif;base64,R0lGOD...)
-      // - blank data URI (data:,)
-      // - "about:blank" or "#"
       const isPlaceholderSrc =
         src === '' ||
         src === 'data:,' ||
@@ -206,12 +189,10 @@ export class SeoAnalyzerService implements OnModuleDestroy {
       return { check: 'canonical_tag', status: 'warning', message: 'No canonical tag found.', weight: 2 };
     }
 
-    // If we know the page URL, verify canonical is self-referencing
     if (pageUrl) {
       try {
         const normalizeForCompare = (u: string) => {
           const parsed = new URL(u);
-          // Strip trailing slash and fragment for comparison
           let path = parsed.pathname.replace(/\/$/, '') || '/';
           return parsed.origin + path;
         };
@@ -226,7 +207,7 @@ export class SeoAnalyzerService implements OnModuleDestroy {
           };
         }
       } catch {
-        // If URL parsing fails, fall through to pass
+        
       }
     }
 
@@ -278,8 +259,6 @@ export class SeoAnalyzerService implements OnModuleDestroy {
       const status = axios.isAxiosError(err) ? err.response?.status : undefined;
       const isTimeout = axios.isAxiosError(err) && err.code === 'ECONNABORTED';
       const isRateLimited = status === 429;
-      // لا استجابة خالص = مشكلة اتصال (DNS, reset, refused..) — دي قابلة للـ retry
-      // بشرط إنها مش timeout (already handled) ومفيش status code (يعني مش HTTP error زي 400/401)
       const isNetworkError = axios.isAxiosError(err) && !err.response && !isTimeout;
 
       if (attempt === maxRetries || !(isRateLimited || isTimeout || isNetworkError)) {
@@ -308,8 +287,6 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
     const lcp = audits['largest-contentful-paint']?.numericValue;
     const cls = audits['cumulative-layout-shift']?.numericValue;
 
-    // INP مش lab audit — بييجي من field data (CrUX) بس. لو الصفحة معندهاش
-    // زيارات كفاية، مفيش field data وهيفضل undefined، وده صح مش نقص.
     const inp = response.data.loadingExperience?.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile
       ?? response.data.originLoadingExperience?.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile;
 
@@ -411,7 +388,6 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
     return { check: 'hreflang', status: 'pass', message: 'hreflang tags are valid.', weight: 1 };
   }
 
-  // Bug fix #1: weight is now a fixed constant across all branches
   private checkMetaRobots($: cheerio.CheerioAPI): SeoCheckResult {
     const content = $('meta[name="robots"]').attr('content')?.toLowerCase();
     const weight = 3;
@@ -513,7 +489,6 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
   return { check: 'charset', status: 'pass', message: 'UTF-8 charset declared.', weight: 1 };
 }
 
-  // Bug fix #4: minimum word-count floor + absolute-repeat-count guard
  private checkKeywordStuffing($: cheerio.CheerioAPI): SeoCheckResult {
   const bodyClone = $('body').clone();
   bodyClone.find('script, style, noscript, template').remove();
@@ -547,16 +522,12 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
     return { check: 'keyword_stuffing', status: 'pass', message: 'No excessive keyword repetition detected.', weight: 1 };
   }
 
-  // Bug fix #2: GET fallback for HEAD-rejecting servers, plus caching for shared nav/footer links
 private async checkUrlReachable(url: string): Promise<number> {
   const cached = this.linkCheckCache.get(url);
   if (cached && Date.now() - cached.timestamp < this.CACHE_TTL_MS) {
     return cached.status;
   }
 
-  // Acquire a global rate-limit slot before making the HTTP request.
-  // This ensures at most MAX_CONCURRENT_LINK_CHECKS requests run at once
-  // across all parallel page scans, preventing server flooding.
   await this.acquireLinkCheckSlot();
   let status: number;
   try {

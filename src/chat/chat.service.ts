@@ -43,6 +43,16 @@ export class ChatService {
       messages: [new SystemMessage(systemPrompt), ...history, new HumanMessage(userMessage)],
     });
 
+    console.log('=== AGENT MESSAGES TRACE ===');
+result.messages.forEach((m, i) => {
+  console.log(`[${i}] role: ${m.getType?.() ?? m._getType?.()}`);
+  if ((m as any).tool_calls?.length > 0) {
+    console.log(`    tool_calls:`, JSON.stringify((m as any).tool_calls, null, 2));
+  }
+  console.log(`    content: ${String(m.content).slice(0, 200)}`);
+});
+console.log('=============================');
+
     const lastMessage = result.messages[result.messages.length - 1];
     const assistantReply = String(lastMessage.content);
 

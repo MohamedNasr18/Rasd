@@ -23,8 +23,6 @@ export class ChatAgentService {
     private readonly kb: KnowledgeBaseService,
   ) {}
 
-  // Tools are built per-request, bound (via closure) to the specific siteScan/site
-  // being discussed — this is what keeps the agent scoped to THIS user's site only.
   private buildTools(siteScanId: string, siteId: string) {
     const retrieveKnowledgeTool = tool(
       async ({ query, checkType }: { query: string; checkType?: string }) => {
