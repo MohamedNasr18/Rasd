@@ -23,7 +23,7 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Rasd is an AI-powered SEO auditing platform that analyzes websites across 18+ SEO factors, including Core Web Vitals, crawlability, and structured data. Built with NestJS, Puppeteer, BullMQ, and Prisma, it uses a scalable background job architecture for multi-page analysis and generates comprehensive SEO reports with LLM-powered insights and RAG-based knowledge retrieval.
 
 ## Project setup
 
