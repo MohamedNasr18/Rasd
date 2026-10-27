@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RendererService } from '../seo/renderer.service.js';
 import { SeoAnalyzerService, SeoCheckResult } from '../seo/seo-analyzer.service.js';
+import { SEO_ANALYZER_VERSION } from '../seo/analyzer-version.js';
 import { KnowledgeBaseService } from './knowledge-base.service.js';
 
 interface ChatAgent {
@@ -62,6 +63,7 @@ export class ChatAgentService {
             results: results as unknown as Prisma.InputJsonValue,
             triggeredBy: 'agent_rescan',
             previousScanId: previousScan?.id ?? null,
+            analyzerVersion: SEO_ANALYZER_VERSION,
           },
         });
 

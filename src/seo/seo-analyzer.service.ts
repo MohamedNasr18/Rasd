@@ -3,15 +3,70 @@ import axios from 'axios';
 import { AxiosResponse } from 'axios';
 import * as cheerio from 'cheerio';
 import type { PageSpeedInsightsResponse } from './types/pagespeed.types.js';
+import { parseSitemapXml, parseRobotsSitemaps } from './sitemap.utils.js';
 
-export type CheckStatus = 'pass' | 'warning' | 'fail';
+export type CheckStatus = 'pass' | 'warning' | 'fail' | 'unknown';
 
 export interface SeoCheckResult {
   check: string;
   status: CheckStatus;
   message: string;
   weight?: number;
+  /** Structured evidence behind the verdict (measured values, sources, URLs). */
+  details?: Record<string, unknown>;
 }
+
+export type CwvRating = 'good' | 'needs-improvement' | 'poor';
+export type CwvMetricKey = 'lcp' | 'inp' | 'cls';
+
+export interface CwvMetric {
+  key: CwvMetricKey;
+  value: number;
+  unit: 's' | 'ms' | '';
+  source: 'lab' | 'field';
+  rating: CwvRating;
+}
+
+// Google's thresholds have three bands; treating everything above "good" as a
+// failure overstates the problem (2.6s LCP is "needs improvement", not poor).
+export const CWV_THRESHOLDS: Record<CwvMetricKey, { good: number; poor: number }> = {
+  lcp: { good: 2500, poor: 4000 },
+  inp: { good: 200, poor: 500 },
+  cls: { good: 0.1, poor: 0.25 },
+};
+
+export function rateCwv(key: CwvMetricKey, value: number): CwvRating {
+  const { good, poor } = CWV_THRESHOLDS[key];
+  if (value <= good) return 'good';
+  if (value <= poor) return 'needs-improvement';
+  return 'poor';
+}
+
+/**
+ * A metric that was not measured can never make the check "pass": we don't know.
+ * Unknown checks are excluded from the score instead of being rewarded/penalised.
+ */
+export function cwvStatus(metrics: CwvMetric[], missing: CwvMetricKey[]): CheckStatus {
+  if (metrics.some((m) => m.rating === 'poor')) return 'fail';
+  if (metrics.some((m) => m.rating === 'needs-improvement')) return 'warning';
+  if (missing.length > 0) return 'unknown';
+  return 'pass';
+}
+
+export function formatCwvMetric(metric: CwvMetric): string {
+  const { key, value, source, rating } = metric;
+  const shown =
+    key === 'cls'
+      ? value.toFixed(2)
+      : key === 'lcp'
+        ? `${(value / 1000).toFixed(1)}s`
+        : `${Math.round(value)}ms`;
+  return `${key.toUpperCase()} ${shown} (${source}, ${rating})`;
+}
+
+export type SitemapKind = 'urlset' | 'sitemapindex' | 'unknown';
+
+export { parseSitemapXml, parseRobotsSitemaps } from './sitemap.utils.js';
 
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'is', 'it', 'for', 'on',
@@ -277,28 +332,81 @@ export class SeoAnalyzerService implements OnModuleDestroy {
 }
 
 private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
+  const checkedAt = new Date().toISOString();
   try {
     const response = await this.fetchPsiWithRetry(url);
     const audits = response.data.lighthouseResult?.audits;
-    if (!audits) {
-      return { check: 'core_web_vitals', status: 'warning', message: 'PageSpeed Insights returned no Lighthouse data.', weight: 3 };
+    const urlField = response.data.loadingExperience;
+    const originField = response.data.originLoadingExperience;
+    const field = urlField ?? originField;
+    const fieldScope: 'url' | 'origin' | undefined = urlField ? 'url' : originField ? 'origin' : undefined;
+
+    const metrics: CwvMetric[] = [];
+    const add = (key: CwvMetricKey, value: number | undefined, unit: CwvMetric['unit'], source: CwvMetric['source']) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        metrics.push({ key, value, unit, source, rating: rateCwv(key, value) });
+      }
+    };
+
+    add('lcp', field?.metrics?.LARGEST_CONTENTFUL_PAINT_MS?.percentile, 'ms', 'field');
+    if (!metrics.some((m) => m.key === 'lcp')) {
+      add('lcp', audits?.['largest-contentful-paint']?.numericValue, 'ms', 'lab');
     }
 
-    const lcp = audits['largest-contentful-paint']?.numericValue;
-    const cls = audits['cumulative-layout-shift']?.numericValue;
+    add('inp', field?.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile, 'ms', 'field');
 
-    const inp = response.data.loadingExperience?.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile
-      ?? response.data.originLoadingExperience?.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile;
-
-    const issues: string[] = [];
-    if (lcp !== undefined && lcp > 2500) issues.push(`LCP ${(lcp / 1000).toFixed(1)}s`);
-    if (cls !== undefined && cls > 0.1) issues.push(`CLS ${cls.toFixed(2)}`);
-    if (inp !== undefined && inp > 200) issues.push(`INP ${Math.round(inp)}ms`);
-
-    if (issues.length === 0) {
-      return { check: 'core_web_vitals', status: 'pass', message: "Core Web Vitals are within Google's recommended thresholds.", weight: 3 };
+    // PSI reports the field CLS percentile in hundredths (5 === 0.05); guard for
+    // responses that already use the 0-1 scale.
+    const rawFieldCls = field?.metrics?.CUMULATIVE_LAYOUT_SHIFT_SCORE?.percentile;
+    add('cls', typeof rawFieldCls === 'number' && rawFieldCls > 1 ? rawFieldCls / 100 : rawFieldCls, '', 'field');
+    if (!metrics.some((m) => m.key === 'cls')) {
+      add('cls', audits?.['cumulative-layout-shift']?.numericValue, '', 'lab');
     }
-    return { check: 'core_web_vitals', status: 'fail', message: `Core Web Vitals failing thresholds: ${issues.join(', ')}.`, weight: 3 };
+
+    const missing = (['lcp', 'inp', 'cls'] as CwvMetricKey[]).filter(
+      (key) => !metrics.some((m) => m.key === key),
+    );
+    const status = cwvStatus(metrics, missing);
+    const fieldMetricCount = metrics.filter((m) => m.source === 'field').length;
+    const fieldLabel = fieldScope === 'origin' ? 'Chrome UX origin-level field data' : 'Chrome UX url-level field data';
+    const provenance = fieldMetricCount === 0
+      ? 'lab only, no field data yet'
+      : fieldMetricCount < metrics.length
+        ? `lab + ${fieldLabel}`
+        : fieldLabel;
+    const details = { strategy: 'mobile', checkedAt, provenance, fieldScope, metrics, missing };
+    const measuredText = metrics.map(formatCwvMetric).join(' · ') || 'no metric measured';
+    const missingText = missing.length > 0
+      ? ` · not measured: ${missing.map((k) => k.toUpperCase()).join(', ')}`
+      : '';
+
+    if (status === 'unknown') {
+      return {
+        check: 'core_web_vitals',
+        status,
+        weight: 3,
+        details,
+        message: `Core Web Vitals could not be fully verified (${provenance}): ${measuredText}${missingText}. Not counted in the score.`,
+      };
+    }
+
+    if (status === 'pass') {
+      return {
+        check: 'core_web_vitals',
+        status,
+        weight: 3,
+        details,
+        message: `Core Web Vitals are good (${provenance}): ${measuredText}.`,
+      };
+    }
+
+    return {
+      check: 'core_web_vitals',
+      status,
+      weight: 3,
+      details,
+      message: `Core Web Vitals ${status === 'fail' ? 'are poor' : 'need improvement'} (${provenance}): ${measuredText}${missingText}.`,
+    };
   } catch (err) {
     const status = axios.isAxiosError(err) ? err.response?.status : undefined;
     const isTimeout = axios.isAxiosError(err) && err.code === 'ECONNABORTED';
@@ -311,7 +419,13 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
           : 'network error after retries';
 
     this.logger.warn(`PageSpeed API failed for ${url}: ${reason}`);
-    return { check: 'core_web_vitals', status: 'warning', message: `Could not retrieve Core Web Vitals (${reason}).`, weight: 3 };
+    return {
+      check: 'core_web_vitals',
+      status: 'unknown',
+      weight: 3,
+      details: { strategy: 'mobile', checkedAt, error: reason },
+      message: `Could not retrieve Core Web Vitals (${reason}). Not counted in the score.`,
+    };
   }
 }
 
@@ -433,31 +547,200 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
   }
 
   private async checkSitemapContent(url: string): Promise<SeoCheckResult> {
+    const weight = 2;
+    const MAX_CHILD_SITEMAPS = 5;
+
     try {
       const base = new URL(url);
-      const res = await axios.get<string>(`${base.protocol}//${base.host}/sitemap.xml`, { timeout: 5000, validateStatus: () => true });
+      const origin = `${base.protocol}//${base.host}`;
+      const fetchXml = (target: string, timeout = 8000) =>
+        axios.get<string>(target, {
+          timeout,
+          validateStatus: () => true,
+          maxRedirects: 5,
+          headers: { Accept: 'application/xml,text/xml,*/*' },
+        });
 
-      if (res.status !== 200) {
-        return { check: 'sitemap_content', status: 'warning', message: 'sitemap.xml not found at the default path.', weight: 2 };
+      const robots = await fetchXml(`${origin}/robots.txt`, 5000).catch(() => null);
+      const declared = robots && robots.status === 200
+        ? parseRobotsSitemaps(String(robots.data))
+        : [];
+
+      const candidates = [
+        { url: `${origin}/sitemap.xml`, source: 'default' as const },
+        ...declared.map((u) => ({ url: u, source: 'robots' as const })),
+      ];
+
+      let parsed: ReturnType<typeof parseSitemapXml> | null = null;
+      let used = candidates[0];
+      const problems: string[] = [];
+
+      for (const candidate of candidates) {
+        const res = await fetchXml(candidate.url).catch(() => null);
+        if (!res) {
+          problems.push(`${candidate.url} could not be fetched`);
+          continue;
+        }
+        if (res.status !== 200) {
+          problems.push(`${candidate.url} returned HTTP ${res.status}`);
+          continue;
+        }
+        const contentType = String(res.headers?.['content-type'] ?? 'unknown');
+        const next = parseSitemapXml(String(res.data));
+        if (next.kind === 'unknown') {
+          problems.push(`${candidate.url} is not a sitemap (content-type: ${contentType})`);
+          continue;
+        }
+        parsed = next;
+        used = candidate;
+        break;
       }
 
-      const $sitemap = cheerio.load(res.data, { xmlMode: true });
-      const urls = $sitemap('url > loc').map((_, el) => $sitemap(el).text()).get();
+      if (!parsed) {
+        return {
+          check: 'sitemap_content',
+          status: 'warning',
+          weight,
+          message: `No usable sitemap found: ${problems.join('; ') || 'no sitemap declared in robots.txt'}.`,
+          details: { declaredInRobots: declared.length, problems },
+        };
+      }
+
+      let urls = parsed.urls;
+      let childSitemaps = 0;
+      let declaredChildren = 0;
+
+      if (parsed.kind === 'sitemapindex') {
+        const validChildren = parsed.children.filter((child) => /^https?:\/\//i.test(child));
+        declaredChildren = validChildren.length;
+        const children = validChildren.slice(0, MAX_CHILD_SITEMAPS);
+
+        if (children.length === 0) {
+          return {
+            check: 'sitemap_content',
+            status: 'warning',
+            weight,
+            message: `Sitemap index at ${used.url} lists no child sitemap URLs.`,
+            details: { url: used.url, source: used.source, root: parsed.kind, childSitemaps: 0, urlCount: 0 },
+          };
+        }
+
+        const childResults = await Promise.allSettled(
+          children.map(async (child) => {
+            const res = await fetchXml(child);
+            if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+            return parseSitemapXml(String(res.data));
+          }),
+        );
+
+        const collected: string[] = [];
+        let failed = 0;
+        for (const result of childResults) {
+          if (result.status === 'fulfilled' && result.value.kind === 'urlset') {
+            collected.push(...result.value.urls);
+            childSitemaps++;
+          } else {
+            failed++;
+          }
+        }
+
+        if (collected.length === 0) {
+          return {
+            check: 'sitemap_content',
+            status: 'warning',
+            weight,
+            message: `Sitemap index at ${used.url} lists ${children.length} child sitemap(s) but none could be read (${failed} failed).`,
+            details: { url: used.url, source: used.source, root: parsed.kind, declaredChildSitemaps: declaredChildren, childSitemaps, urlCount: 0, failedChildren: failed },
+          };
+        }
+
+        urls = collected;
+
+        if (failed > 0) {
+          this.logger.warn(`Sitemap index ${used.url}: ${failed} of ${children.length} child sitemaps could not be read.`);
+        }
+      }
 
       if (urls.length === 0) {
-        return { check: 'sitemap_content', status: 'warning', message: 'sitemap.xml has no <url> entries.', weight: 2 };
+        return {
+          check: 'sitemap_content',
+          status: 'warning',
+          weight,
+          message: `Sitemap at ${used.url} (${parsed.kind}) contains no <loc> URLs.`,
+          details: { url: used.url, source: used.source, root: parsed.kind, urlCount: 0 },
+        };
       }
 
-      const sample = [...urls].sort(() => 0.5 - Math.random()).slice(0, 5);
-      const checks = await Promise.allSettled(sample.map((u) => axios.head(u, { timeout: 5000, validateStatus: () => true })));
-      const broken = checks.filter((r) => r.status === 'rejected' || (r.status === 'fulfilled' && r.value.status >= 400)).length;
+      // Deterministic sample: first, middle, last — the previous random sample
+      // made the same site flip between pass and warning between runs.
+      const picks = [...new Set([
+        urls[0],
+        urls[Math.floor(urls.length / 2)],
+        urls[urls.length - 1],
+      ])].filter(Boolean);
 
-      if (broken > 0) {
-        return { check: 'sitemap_content', status: 'warning', message: `${broken} of ${sample.length} sampled sitemap URLs errored. Sitemap has ${urls.length} URLs total.`, weight: 2 };
+      const probe = async (target: string): Promise<boolean> => {
+        try {
+          const head = await axios.head(target, { timeout: 5000, validateStatus: () => true, maxRedirects: 5 });
+          if (head.status < 400) return true;
+          // Plenty of servers reject HEAD while serving the page fine.
+          if (![403, 405, 501].includes(head.status)) return false;
+        } catch {
+          // fall through to GET
+        }
+        try {
+          const get = await axios.get(target, {
+            timeout: 5000,
+            validateStatus: () => true,
+            maxRedirects: 5,
+            headers: { Range: 'bytes=0-0' },
+          });
+          return get.status < 400;
+        } catch {
+          return false;
+        }
+      };
+
+      const reachable = await Promise.all(picks.map((target) => probe(target)));
+      const broken = picks.filter((_, i) => !reachable[i]);
+
+      const details = {
+        url: used.url,
+        source: used.source,
+        root: parsed.kind,
+        declaredChildSitemaps: declaredChildren,
+        childSitemaps,
+        urlCount: urls.length,
+      };
+
+      if (broken.length > 0) {
+        return {
+          check: 'sitemap_content',
+          status: 'warning',
+          weight,
+          message: `${broken.length} of ${picks.length} sampled sitemap URLs errored (${broken.join(', ')}). Sitemap has ${urls.length} URLs.`,
+          details,
+        };
       }
-      return { check: 'sitemap_content', status: 'pass', message: `Sitemap contains ${urls.length} URLs; sampled entries are reachable.`, weight: 2 };
-    } catch {
-      return { check: 'sitemap_content', status: 'warning', message: 'Could not fetch or parse sitemap.xml.', weight: 2 };
+
+      const scope = parsed.kind === 'sitemapindex'
+        ? `Sitemap index declares ${declaredChildren} child sitemap(s); read ${childSitemaps} with ${urls.length} URLs`
+        : `Sitemap contains ${urls.length} URLs`;
+      return {
+        check: 'sitemap_content',
+        status: 'pass',
+        weight,
+        message: `${scope}; sampled entries are reachable.`,
+        details,
+      };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return {
+        check: 'sitemap_content',
+        status: 'warning',
+        weight,
+        message: `Could not fetch or parse sitemap.xml (${message}).`,
+      };
     }
   }
 
@@ -625,11 +908,15 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
     let earned = 0;
 
     for (const r of results) {
+      // 'unknown' means "not measured": it must not be scored as a pass or a
+      // failure — score only what we actually verified.
+      if (r.status === 'unknown') continue;
       const w = r.weight ?? 1;
       totalWeight += w;
       earned += w * statusWeight[r.status];
     }
 
+    if (totalWeight === 0) return 0;
     return Math.round((earned / totalWeight) * 100);
   }
 }

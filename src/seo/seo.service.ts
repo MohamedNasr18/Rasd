@@ -1,7 +1,20 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { FlowProducer } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SiteCrawlerService } from './site-crawler.service.js';
+
+const SCORE_HISTORY_LIMIT = 30;
+
+// Sites are not deduplicated yet (a new Site row is created per scan) and URLs
+// differ by protocol / www / trailing slash, so history is matched on this key.
+function normaliseSiteUrl(url: string): string {
+  return url
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .replace(/\/+$/, '');
+}
 
 @Injectable()
 export class SeoService {
@@ -44,9 +57,64 @@ export class SeoService {
   }
 
   async getSiteScan(siteScanId: string) {
-    return this.prisma.siteScan.findUnique({
+  const siteScan = await this.prisma.siteScan.findUnique({
+    where: { id: siteScanId },
+    // Ascending so the frontend can take the last row per URL as the latest
+    // result (agent rescans included).
+    include: { scans: { orderBy: { createdAt: 'asc' } } },
+  });
+  if (!siteScan) throw new NotFoundException('Site scan not found.');
+  return siteScan;
+}
+
+  async listSiteScans() {
+  return this.prisma.siteScan.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+    select: {
+      id: true, status: true, averageScore: true, pageCount: true,
+      completedPages: true, reportStatus: true, createdAt: true,
+      site: { select: { id: true, url: true } },
+    },
+  });
+}
+
+  async getScoreHistory(siteScanId: string) {
+    const siteScan = await this.prisma.siteScan.findUnique({
       where: { id: siteScanId },
-      include: { scans: true },
+      include: { site: { select: { url: true } } },
     });
+    if (!siteScan) throw new NotFoundException('Site scan not found.');
+
+    const key = normaliseSiteUrl(siteScan.site.url);
+    const sites = await this.prisma.site.findMany({ select: { id: true, url: true } });
+    const siteIds = sites.filter((s) => normaliseSiteUrl(s.url) === key).map((s) => s.id);
+
+    const scans = await this.prisma.siteScan.findMany({
+      where: {
+        siteId: { in: siteIds },
+        status: 'completed',
+        averageScore: { not: null },
+        // A completed scan with zero pages is an empty crawl (score 0), not a
+        // real measurement — it would show up as a fake dip in the trend.
+        pageCount: { gt: 0 },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: SCORE_HISTORY_LIMIT,
+      select: { id: true, createdAt: true, averageScore: true, pageCount: true },
+    });
+
+    return {
+      url: siteScan.site.url,
+      points: scans
+        .filter((s): s is typeof s & { averageScore: number } => s.averageScore !== null)
+        .reverse()
+        .map((s) => ({
+          siteScanId: s.id,
+          createdAt: s.createdAt,
+          averageScore: s.averageScore,
+          pageCount: s.pageCount,
+        })),
+    };
   }
 }

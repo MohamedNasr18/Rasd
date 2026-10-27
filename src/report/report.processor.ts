@@ -1,6 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
 import { Logger } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { ReportAggregatorService } from './report-aggregator.service.js';
 import { ReportGeneratorService } from './report-generator.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -31,7 +32,7 @@ export class ReportProcessor extends WorkerHost {
 
       await this.prisma.siteScan.update({
         where: { id: siteScanId },
-        data: { aiReport: report, reportStatus: 'completed' },
+        data: { aiReport: report as unknown as Prisma.InputJsonValue, reportStatus: 'completed' },
       });
 
       return { siteScanId, status: 'completed' };

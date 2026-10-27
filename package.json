@@ -21,7 +21,8 @@
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "postinstall": "npx puppeteer browsers install chrome",
-    "seed:kb": "node --loader ts-node/esm src/chat/scripts/seed-knowledge-base.ts"
+    "seed:kb": "node --loader ts-node/esm src/chat/scripts/seed-knowledge-base.ts",
+    "seed:facts": "node --loader ts-node/esm src/chat/scripts/seed-fixed-facts.ts"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.3.0",

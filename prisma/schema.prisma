@@ -41,6 +41,7 @@ model Scan {
   results       Json
   triggeredBy   String   @default("scan") // "scan" | "agent_rescan"
   previousScanId String? 
+  analyzerVersion String? // bumped when check logic/thresholds change
   createdAt     DateTime @default(now())
 }
 model Conversation {

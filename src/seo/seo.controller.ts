@@ -12,8 +12,18 @@ export class SeoController {
     return this.seoService.enqueueSiteScan(dto.url);
   }
 
+  @Get('site-scan/:id/history')
+  async history(@Param('id') id: string) {
+    return this.seoService.getScoreHistory(id);
+  }
+
   @Get('site-scan/:id')
   async getSiteScan(@Param('id') id: string) {
     return this.seoService.getSiteScan(id);
   }
+
+  @Get('site-scan')
+async list() {
+  return this.seoService.listSiteScans();
+}
 }

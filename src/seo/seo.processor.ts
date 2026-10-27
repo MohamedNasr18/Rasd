@@ -4,6 +4,7 @@ import { Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { RendererService } from './renderer.service.js';
 import { SeoAnalyzerService } from './seo-analyzer.service.js';
+import { SEO_ANALYZER_VERSION } from './analyzer-version.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 interface ScanJobData {
@@ -57,7 +58,14 @@ export class SeoProcessor extends WorkerHost {
       const { score, results } = await this.analyzer.analyze(html, url, headers);
 
       const scan = await this.prisma.scan.create({
-        data: { siteId, siteScanId, url, score, results: results as unknown as Prisma.InputJsonValue },
+        data: {
+          siteId,
+          siteScanId,
+          url,
+          score,
+          results: results as unknown as Prisma.InputJsonValue,
+          analyzerVersion: SEO_ANALYZER_VERSION,
+        },
       });
 
       await this.prisma.siteScan.update({

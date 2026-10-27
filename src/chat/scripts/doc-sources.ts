@@ -2,7 +2,6 @@ export interface DocSource {
   url: string;
   checkType: string;
   source: string;
-  // CSS selector for the main content area — different sites structure differently
   contentSelector: string;
 }
 
@@ -80,9 +79,33 @@ export const DOC_SOURCES: DocSource[] = [
     contentSelector: 'article, main',
   },
   {
-    url: 'https://nextjs.org/docs/app/building-your-application/optimizing/metadata',
+    url: 'https://nextjs.org/docs/app/api-reference/functions/generate-metadata',
     checkType: 'title_tag',
     source: 'Next.js Docs - Metadata',
+    contentSelector: 'article, main',
+  },
+  {
+    url: 'https://nextjs.org/docs/app/api-reference/components/image',
+    checkType: 'image_alt_tags',
+    source: 'Next.js Docs - Image Component',
+    contentSelector: 'article, main',
+  },
+  {
+    url: 'https://nextjs.org/docs/app/api-reference/components/font',
+    checkType: 'core_web_vitals',
+    source: 'Next.js Docs - Font Module',
+    contentSelector: 'article, main',
+  },
+  {
+    url: 'https://nextjs.org/docs/app/api-reference/components/script',
+    checkType: 'core_web_vitals',
+    source: 'Next.js Docs - Script Component',
+    contentSelector: 'article, main',
+  },
+  {
+    url: 'https://nextjs.org/docs/app/api-reference/functions/use-report-web-vitals',
+    checkType: 'core_web_vitals',
+    source: 'Next.js Docs - useReportWebVitals',
     contentSelector: 'article, main',
   },
   {

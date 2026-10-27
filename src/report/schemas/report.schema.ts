@@ -1,38 +1,77 @@
 import { z } from 'zod';
 
+/**
+ * What the model is allowed to write: prose only.
+ * Severity, affected page counts and evidence are computed from the checks in
+ * code (see ReportAggregatorService) so the model cannot invent numbers.
+ */
 export const seoReportSchema = z.object({
   executiveSummary: z
     .string()
-    .describe('فقرة من 3-4 جمل بالعربية تلخص الحالة العامة للموقع بلغة بسيطة لصاحب الموقع، مش خبير تقني'),
+    .describe('ملخص من 3-4 جمل لأهم ما وجده الفحص، بدون أرقام غير موجودة في الأدلة'),
   overallScoreComment: z
     .string()
-    .describe('جملة واحدة بتشرح معنى الـ score الإجمالي (مثلاً: هل ده جيد، متوسط، ضعيف مقارنة بالمعايير)'),
+    .describe('تعليق من جملتين على الدرجة الإجمالية، مع توضيح أنها درجة داخلية وليست ترتيبًا من جوجل'),
   strengths: z
     .array(
       z.object({
-        title: z.string().describe('عنوان قصير لنقطة القوة'),
-        explanation: z.string().describe('شرح مبسط ليه دي نقطة قوة'),
+        check: z.string().describe('اسم الفحص كما هو مكتوب في قائمة نقاط القوة المعطاة'),
+        title: z.string().describe('عنوان عربي قصير لنقطة القوة'),
+        explanation: z.string().describe('شرح مبني على دليل الفحص فقط'),
       }),
     )
-    .describe('حد أقصى 5 نقاط قوة — حاجات الموقع بيعملها صح بالفعل'),
+    .describe('اكتب فقط عن الفحوصات الموجودة في قائمة نقاط القوة المعطاة'),
   priorityIssues: z
     .array(
       z.object({
-        check: z.string().describe('اسم الفحص التقني (مثال: core_web_vitals)'),
-        severity: z.enum(['critical', 'moderate', 'minor']),
-        affectedPagesCount: z.number(),
+        check: z.string().describe('اسم الفحص كما هو مكتوب في قائمة المشاكل المعطاة'),
         explanation: z
           .string()
-          .describe('شرح المشكلة بلغة بسيطة، ليه هي مهمة، وتأثيرها على ظهور الموقع في البحث'),
+          .describe('شرح عربي كامل في جملة أو جملتين: ما المشكلة، ومعنى القيمة المقاسة، وأثرها. ممنوع إرجاع قائمة أرقام فقط'),
         recommendation: z
           .string()
-          .describe('خطوة عملية واضحة لحل المشكلة، مبنية على المصادر الرسمية المعطاة'),
+          .describe('خطوة عملية مرتبطة بالفحص وبالقيمة المقاسة، مش نصيحة عامة'),
       }),
     )
-    .describe('مرتبة من الأهم للأقل أهمية، حد أقصى 8 مشاكل'),
+    .describe('اكتب عن كل فحص في قائمة المشاكل بنفس الترتيب، بدون إضافة أو حذف'),
   quickWins: z
     .array(z.string())
-    .describe('حد أقصى 3 إصلاحات سريعة وسهلة التنفيذ يقدر صاحب الموقع يعملها في نفس اليوم'),
+    .describe('من 1 إلى 3 خطوات سريعة، كل واحدة مربوطة بمشكلة موجودة في القائمة'),
 });
 
-export type SeoReport = z.infer<typeof seoReportSchema>;
+export type SeoReportDraft = z.infer<typeof seoReportSchema>;
+
+export type IssueSeverity = 'critical' | 'moderate' | 'minor';
+
+export interface UnmeasuredMetric {
+  metric: string;
+  pages: number;
+}
+
+export interface SeoReportIssue {
+  check: string;
+  scope: 'page' | 'site';
+  severity: IssueSeverity;
+  affectedPagesCount: number;
+  affectedPages: string[];
+  /** Metrics the check could not measure (e.g. INP when CrUX has no data). */
+  unmeasured: UnmeasuredMetric[];
+  /** The measured values / raw check output the explanation must be based on. */
+  evidence: string;
+  explanation: string;
+  recommendation: string;
+}
+
+export interface SeoReportStrength {
+  check: string;
+  title: string;
+  explanation: string;
+}
+
+export interface SeoReport {
+  executiveSummary: string;
+  overallScoreComment: string;
+  strengths: SeoReportStrength[];
+  priorityIssues: SeoReportIssue[];
+  quickWins: string[];
+}

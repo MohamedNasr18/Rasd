@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { parseSitemapXml, parseRobotsSitemaps } from './sitemap.utils.js';
 
 const DEFAULT_MAX_PAGES = 3; 
 const CRAWL_DELAY_MS = 600;
+const MAX_CHILD_SITEMAPS = 5;
 
 @Injectable()
 export class SiteCrawlerService {
@@ -12,11 +14,14 @@ export class SiteCrawlerService {
   async discoverPages(startUrl: string, maxPages: number = DEFAULT_MAX_PAGES): Promise<string[]> {
     const base = new URL(startUrl);
     const disallowedPaths = await this.getDisallowedPaths(base);
+    const start = this.normalizeUrl(startUrl);
 
     const fromSitemap = await this.tryGetSitemapUrls(base, maxPages, disallowedPaths);
     if (fromSitemap.length > 0) {
-      this.logger.log(`Discovered ${fromSitemap.length} pages from sitemap.xml`);
-      return fromSitemap;
+      // Always include the page the user asked for; the sitemap fills the rest.
+      const pages = [start, ...fromSitemap.filter((url) => url !== start)].slice(0, maxPages);
+      this.logger.log(`Discovered ${pages.length} pages (start URL + sitemap)`);
+      return pages;
     }
 
     this.logger.log('No sitemap found — falling back to link crawling.');
@@ -56,32 +61,66 @@ export class SiteCrawlerService {
   }
 
   private async tryGetSitemapUrls(base: URL, maxPages: number, disallowedPaths: string[]): Promise<string[]> {
-  try {
-    const res = await axios.get<string>(`${base.protocol}//${base.host}/sitemap.xml`, {
-      timeout: 5000,
-      validateStatus: () => true,
-    });
-    if (res.status !== 200) return [];
+  const origin = `${base.protocol}//${base.host}`;
+  const candidates = [...new Set([`${origin}/sitemap.xml`, ...(await this.getRobotsSitemaps(origin))])];
 
-    const $ = cheerio.load(res.data, { xmlMode: true });
-    const urls = $('url > loc').map((_, el) => $(el).text()).get();
+  for (const candidate of candidates) {
+    try {
+      const res = await axios.get<string>(candidate, { timeout: 5000, validateStatus: () => true });
+      if (res.status !== 200) continue;
 
-    const seen = new Set<string>();
-    const allowed: string[] = [];
-    for (const u of urls) {
-      try {
-        const normalized = this.normalizeUrl(u);
-        if (seen.has(normalized)) continue;
-        if (!this.isAllowed(new URL(u).pathname, disallowedPaths)) continue;
-        seen.add(normalized);
-        allowed.push(normalized);
-      } catch { /* skip malformed */ }
+      const parsed = parseSitemapXml(String(res.data));
+      if (parsed.kind === 'unknown') continue;
+
+      let urls = parsed.urls;
+
+      // A sitemap index holds no <url> entries of its own — read its children.
+      if (parsed.kind === 'sitemapindex') {
+        const children = parsed.children.filter((u) => /^https?:\/\//i.test(u)).slice(0, MAX_CHILD_SITEMAPS);
+        const childResults = await Promise.allSettled(
+          children.map(async (child) => {
+            const childRes = await axios.get<string>(child, { timeout: 5000, validateStatus: () => true });
+            if (childRes.status !== 200) throw new Error(`HTTP ${childRes.status}`);
+            return parseSitemapXml(String(childRes.data));
+          }),
+        );
+        urls = childResults.flatMap((result) =>
+          result.status === 'fulfilled' && result.value.kind === 'urlset' ? result.value.urls : [],
+        );
+      }
+
+      const seen = new Set<string>();
+      const allowed: string[] = [];
+      for (const u of urls) {
+        try {
+          const normalized = this.normalizeUrl(u);
+          if (seen.has(normalized)) continue;
+          if (!this.isAllowed(new URL(u).pathname, disallowedPaths)) continue;
+          seen.add(normalized);
+          allowed.push(normalized);
+        } catch { /* skip malformed */ }
+      }
+
+      if (allowed.length > 0) return allowed.slice(0, maxPages);
+    } catch {
+      // try the next candidate
     }
-    return allowed.slice(0, maxPages);
-  } catch {
-    return [];
   }
+
+  return [];
 }
+
+  private async getRobotsSitemaps(origin: string): Promise<string[]> {
+    try {
+      const res = await axios.get<string>(`${origin}/robots.txt`, {
+        timeout: 5000,
+        validateStatus: () => true,
+      });
+      return res.status === 200 ? parseRobotsSitemaps(String(res.data)) : [];
+    } catch {
+      return [];
+    }
+  }
 
   private normalizeUrl(rawUrl: string): string {
   const u = new URL(rawUrl);

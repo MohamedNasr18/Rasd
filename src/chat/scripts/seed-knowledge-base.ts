@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { Client } from 'pg';
 import { HuggingFaceTransformersEmbeddings } from '@langchain/community/embeddings/huggingface_transformers'; import { PGVectorStore } from '@langchain/community/vectorstores/pgvector';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { Document } from '@langchain/core/documents';
@@ -16,15 +17,14 @@ async function fetchAndCleanContent(source: DocSource): Promise<string | null> {
       headers: { 'User-Agent': 'RasdKnowledgeBaseBot/1.0 (+https://rasd.app)' },
     });
 
-    const $ = cheerio.load(res.data);
+    const raw = String(res.data);
+    const contentType = String(res.headers['content-type'] ?? '');
+    const isHtml =
+      /html/i.test(contentType) || /^\s*(?:<!doctype html|<html)/i.test(raw);
 
-    // Remove obviously non-content elements before extracting text
-    $('script, style, noscript, nav, header, footer, aside, [role="navigation"]').remove();
-
-    const container = $(source.contentSelector).first();
-    const text = (container.length > 0 ? container.text() : $('body').text())
-      .replace(/\s+/g, ' ')
-      .trim();
+    // Some docs sites (nextjs.org) serve llms.txt-style markdown to non-browser
+    // user agents, so parsing them with cheerio throws most of the text away.
+    const text = isHtml ? extractHtmlText(raw, source) : extractMarkdownText(raw);
 
     if (text.length < MIN_CONTENT_LENGTH) {
       console.warn(`⚠ Skipping ${source.url} — extracted content too short (${text.length} chars). Selector may be wrong for this site.`);
@@ -36,6 +36,27 @@ async function fetchAndCleanContent(source: DocSource): Promise<string | null> {
     console.warn(`⚠ Failed to fetch ${source.url}: ${err.message}`);
     return null;
   }
+}
+
+function extractHtmlText(html: string, source: DocSource): string {
+  const $ = cheerio.load(html);
+
+  $('script, style, noscript, nav, header, footer, aside, [role="navigation"]').remove();
+
+  const container = $(source.contentSelector).first();
+  return (container.length > 0 ? container.text() : $('body').text())
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractMarkdownText(markdown: string): string {
+  return markdown
+    .replace(/\r\n/g, '\n')
+    .replace(/^---\n[\s\S]*?\n---\n?/, '') // YAML frontmatter (title/url/description)
+    .replace(/^>?\s*For an index of all (?:available )?documentation.*$/gim, '') // llms.txt boilerplate
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 async function main() {
@@ -53,6 +74,9 @@ async function main() {
   });
 
   const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 500, chunkOverlap: 50 });
+
+  const pgClient = new Client({ connectionString: process.env.DATABASE_URL });
+  await pgClient.connect();
 
   let totalChunks = 0;
   let successCount = 0;
@@ -76,13 +100,28 @@ async function main() {
         }),
     );
 
+    // Idempotency: replace this source's previous chunks instead of appending,
+    // so re-running the seed doesn't duplicate the knowledge base. Matching on
+    // the source label as well means a changed docs URL doesn't leave orphans.
+    // Done only after a successful fetch, so a failed source keeps its rows.
+    const deleted = await pgClient.query(
+      `DELETE FROM seo_knowledge_base
+       WHERE metadata->>'url' = $1 OR metadata->>'source' = $2`,
+      [source.url, source.source],
+    );
+
     await vectorStore.addDocuments(documents);
     totalChunks += documents.length;
     successCount++;
-    console.log(`✓ ${source.source} — ${documents.length} chunks added`);
+    console.log(
+      `✓ ${source.source} — ${documents.length} chunks added` +
+        (deleted.rowCount ? ` (replaced ${deleted.rowCount} old)` : ''),
+    );
 
     await delay(FETCH_DELAY_MS);
   }
+
+  await pgClient.end();
 
   console.log(`\nDone. ${successCount}/${DOC_SOURCES.length} sources succeeded, ${failCount} failed.`);
   console.log(`Total chunks inserted: ${totalChunks}`);
