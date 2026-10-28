@@ -9,29 +9,26 @@ import {
   YAxis,
 } from 'recharts';
 import type { ScorePoint } from '@/types';
-
-const shortDate = new Intl.DateTimeFormat('ar-EG', { day: 'numeric', month: 'short' });
-const longDate = new Intl.DateTimeFormat('ar-EG', { dateStyle: 'medium' });
-const clockTime = new Intl.DateTimeFormat('ar-EG', { hour: '2-digit', minute: '2-digit' });
+import { useI18n } from '@/i18n/I18nProvider';
+import { formatClock, formatDateOnly, formatDayMonth } from '@/i18n/format';
 
 const dayKey = (iso: string) => new Date(iso).toDateString();
 
 export default function ScoreTrendChart({ points }: { points: ScorePoint[] }) {
+  const { locale, dir, dict } = useI18n();
+
   if (points.length < 2) {
-    return (
-      <p className="py-6 text-center text-sm text-gray-500">
-        محتاج فحصين على الأقل عشان يظهر التطور.
-      </p>
-    );
+    return <p className="py-6 text-center text-sm text-gray-500">{dict.trend.needTwo}</p>;
   }
 
   const data = points.map((p, i) => {
-    const date = new Date(p.createdAt);
     const previous = points[i - 1];
     // Several scans can happen on the same day. Show the day once and the time
     // for the rest, otherwise the x-axis repeats identical day labels.
     const isNewDay = !previous || dayKey(previous.createdAt) !== dayKey(p.createdAt);
-    const label = isNewDay ? shortDate.format(date) : clockTime.format(date);
+    const label = isNewDay
+      ? formatDayMonth(locale, p.createdAt)
+      : formatClock(locale, p.createdAt);
     return { ...p, label };
   });
 
@@ -52,17 +49,17 @@ export default function ScoreTrendChart({ points }: { points: ScorePoint[] }) {
 
                 return (
                   <div
-                    dir="rtl"
+                    dir={dir}
                     className="rounded-lg border bg-white px-3 py-2 text-xs shadow-sm"
                   >
                     <p className="mb-1 font-medium">
-                      {longDate.format(new Date(point.createdAt))} —{' '}
-                      {clockTime.format(new Date(point.createdAt))}
+                      {formatDateOnly(locale, point.createdAt)} —{' '}
+                      {formatClock(locale, point.createdAt)}
                     </p>
                     <p>
-                      الدرجة: <span className="font-bold">{point.averageScore}</span>/100
+                      {dict.trend.score} <span className="font-bold">{point.averageScore}</span>/100
                     </p>
-                    <p className="text-gray-500">{point.pageCount} صفحة تم فحصها</p>
+                    <p className="text-gray-500">{dict.trend.pages(point.pageCount)}</p>
                   </div>
                 );
               }}
@@ -78,9 +75,7 @@ export default function ScoreTrendChart({ points }: { points: ScorePoint[] }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="mt-3 text-xs text-gray-500">
-        المقارنة تقريبية لو عدد الصفحات اختلف بين الفحوصات.
-      </p>
+      <p className="mt-3 text-xs text-gray-500">{dict.trend.note}</p>
     </div>
   );
 }

@@ -25,9 +25,29 @@ model SiteScan {
   siteLevelResults Json?
   aiReport         Json?
   reportStatus     String?  // null | "processing" | "completed" | "failed"
+  aiReportEn       Json?
+  reportStatusEn   String?  // null | "processing" | "completed" | "failed"
   scans            Scan[]
+  progress         PageProgress[]
   conversations    Conversation[]
   createdAt        DateTime @default(now())
+}
+
+// One row per page (plus one for the site-level job). Each seo-analysis worker
+// writes only its own row, so the 3 concurrent workers never clobber each other.
+model PageProgress {
+  id         String   @id @default(uuid())
+  siteScanId String
+  siteScan   SiteScan @relation(fields: [siteScanId], references: [id], onDelete: Cascade)
+  kind       String   @default("page") // "page" | "site"
+  position   Int      @default(0) // discovery order; site row is -1
+  url        String
+  stage      String   @default("queued")
+  score      Int?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([siteScanId, kind, url])
+  @@index([siteScanId])
 }
 
 model Scan {

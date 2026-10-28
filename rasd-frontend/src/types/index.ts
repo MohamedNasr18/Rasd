@@ -35,6 +35,26 @@ export interface Scan {
   createdAt: string;
 }
 
+export type PageStage =
+  | 'queued'
+  | 'rendering'
+  | 'analyzing'
+  | 'speed'
+  | 'links'
+  | 'saving'
+  | 'done'
+  | 'failed';
+
+export interface PageProgress {
+  id: string;
+  kind: 'page' | 'site';
+  position: number;
+  url: string;
+  stage: PageStage;
+  score: number | null;
+  updatedAt: string;
+}
+
 export interface SiteScanDetail {
   id: string;
   siteId: string;
@@ -47,6 +67,7 @@ export interface SiteScanDetail {
   reportStatus: ReportStatus;
   createdAt: string;
   scans: Scan[];
+  progress?: PageProgress[];
 }
 
 export interface SiteScanListItem {

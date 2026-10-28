@@ -1,24 +1,29 @@
-
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { Provider } from 'react-redux';
 import { makeStore, type AppStore } from './index';
 
-export default function StoreProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [store, setStore] = useState<AppStore | null>(null);
+// Created once on the client so switching locale (which remounts the [lang]
+// layout) reuses the same store and its cached queries instead of losing them.
+let browserStore: AppStore | null = null;
 
-  useEffect(() => {
-    setStore(makeStore());
-  }, []);
+function getBrowserStore(): AppStore {
+  browserStore ??= makeStore();
+  return browserStore;
+}
 
-  if (!store) {
-    return <div>Loading...</div>;
-  }
+const emptySubscribe = () => () => {};
 
-  return <Provider store={store}>{children}</Provider>;
+export default function StoreProvider({ children }: { children: React.ReactNode }) {
+  // false on the server, true after hydration: keeps the store client-only.
+  const hydrated = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+
+  if (!hydrated) return <div>Loading...</div>;
+
+  return <Provider store={getBrowserStore()}>{children}</Provider>;
 }

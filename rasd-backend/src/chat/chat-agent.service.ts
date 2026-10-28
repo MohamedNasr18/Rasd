@@ -10,6 +10,7 @@ import { RendererService } from '../seo/renderer.service.js';
 import { SeoAnalyzerService, SeoCheckResult } from '../seo/seo-analyzer.service.js';
 import { SEO_ANALYZER_VERSION } from '../seo/analyzer-version.js';
 import { KnowledgeBaseService } from './knowledge-base.service.js';
+import type { Language } from '../common/language.js';
 
 interface ChatAgent {
   invoke(input: { messages: BaseMessage[] }): Promise<{ messages: BaseMessage[] }>;
@@ -24,11 +25,14 @@ export class ChatAgentService {
     private readonly kb: KnowledgeBaseService,
   ) {}
 
-  private buildTools(siteScanId: string, siteId: string) {
+  private buildTools(siteScanId: string, siteId: string, lang: Language) {
     const retrieveKnowledgeTool = tool(
       async ({ query, checkType }: { query: string; checkType?: string }) => {
         const docs = await this.kb.retrieveGuidance(query, checkType);
-        return docs.length > 0 ? docs.join('\n---\n') : 'لا توجد معلومات مرجعية متاحة عن ده.';
+        if (docs.length > 0) return docs.join('\n---\n');
+        return lang === 'en'
+          ? 'No reference material is available for this query.'
+          : 'لا توجد معلومات مرجعية متاحة عن ده.';
       },
       {
         name: 'retrieve_seo_knowledge',
@@ -125,14 +129,14 @@ export class ChatAgentService {
     return [retrieveKnowledgeTool, rerunPageScanTool, compareScansTool];
   }
 
-  createAgent(siteScanId: string, siteId: string, systemPrompt: string): ChatAgent {
+  createAgent(siteScanId: string, siteId: string, systemPrompt: string, lang: Language = 'ar'): ChatAgent {
     const model = new ChatGroq({
       apiKey: process.env.GROQ_API_KEY,
       model: 'openai/gpt-oss-20b',
       temperature: 0.3,
       maxTokens: 4096,
     });
-    const tools = this.buildTools(siteScanId, siteId);
+    const tools = this.buildTools(siteScanId, siteId, lang);
 
     return createReactAgent({ llm: model, tools, prompt: systemPrompt });
   }

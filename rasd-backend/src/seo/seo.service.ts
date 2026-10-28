@@ -32,7 +32,17 @@ export class SeoService {
     const pages = await this.crawler.discoverPages(url);
 
     const siteScan = await this.prisma.siteScan.create({
-      data: { siteId: site.id, pageCount: pages.length, status: 'processing' },
+      data: {
+        siteId: site.id,
+        pageCount: pages.length,
+        status: 'processing',
+        progress: {
+          create: [
+            { kind: 'site', position: -1, url },
+            ...pages.map((pageUrl, position) => ({ kind: 'page', position, url: pageUrl })),
+          ],
+        },
+      },
     });
 
     const flow = await this.flowProducer.add({
@@ -61,7 +71,10 @@ export class SeoService {
     where: { id: siteScanId },
     // Ascending so the frontend can take the last row per URL as the latest
     // result (agent rescans included).
-    include: { scans: { orderBy: { createdAt: 'asc' } } },
+    include: {
+      scans: { orderBy: { createdAt: 'asc' } },
+      progress: { orderBy: { position: 'asc' } },
+    },
   });
   if (!siteScan) throw new NotFoundException('Site scan not found.');
   return siteScan;

@@ -7,6 +7,9 @@ import { parseSitemapXml, parseRobotsSitemaps } from './sitemap.utils.js';
 
 export type CheckStatus = 'pass' | 'warning' | 'fail' | 'unknown';
 
+/** Progress stages owned by the analyzer; everything else is the processor's. */
+export type AnalyzeStage = 'speed' | 'links';
+
 export interface SeoCheckResult {
   check: string;
   status: CheckStatus;
@@ -129,11 +132,12 @@ export class SeoAnalyzerService implements OnModuleDestroy {
     html: string,
     url: string,
     headers: Record<string, string> = {},
+    onStage?: (stage: AnalyzeStage) => void | Promise<void>,
   ): Promise<{ score: number; results: SeoCheckResult[] }> {
     const $ = cheerio.load(html);
     const isHttps = url.startsWith('https://');
 
-    const results: SeoCheckResult[] = [
+    const headChecks: SeoCheckResult[] = [
       this.checkTitle($),
       this.checkMetaDescription($),
       this.checkH1($),
@@ -143,14 +147,30 @@ export class SeoAnalyzerService implements OnModuleDestroy {
       this.checkViewport($),
       this.checkHttps(isHttps),
       this.checkOpenGraph($),
-      await this.checkCoreWebVitals(url),
+    ];
+
+    // The two network-bound checks are the slow ones, so progress reporting
+    // marks them precisely instead of leaving the page on a generic "analyzing".
+    await onStage?.('speed');
+    const coreWebVitals = await this.checkCoreWebVitals(url);
+
+    const bodyChecks: SeoCheckResult[] = [
       this.checkStructuredData($),
       this.checkHreflang($),
       this.checkMetaRobots($),
       this.checkLangAttribute($),
       this.checkCharset($, headers),
       this.checkKeywordStuffing($),
-      await this.checkBrokenInternalLinks($, url),
+    ];
+
+    await onStage?.('links');
+    const brokenLinks = await this.checkBrokenInternalLinks($, url);
+
+    const results: SeoCheckResult[] = [
+      ...headChecks,
+      coreWebVitals,
+      ...bodyChecks,
+      brokenLinks,
       this.checkSecurityHeaders(headers),
     ];
 
@@ -169,42 +189,47 @@ export class SeoAnalyzerService implements OnModuleDestroy {
   private checkTitle($: cheerio.CheerioAPI): SeoCheckResult {
   const title = $('head > title').first().text().trim();
   if (!title) {
-    return { check: 'title_tag', status: 'fail', message: 'No <title> tag found.', weight: 2 };
+    return { check: 'title_tag', status: 'fail', message: 'No <title> tag found.', weight: 2, details: { length: 0 } };
   }
   if (title.length < 30 || title.length > 60) {
-    return { check: 'title_tag', status: 'warning', message: `Title length is ${title.length} chars. Ideal range is 30-60.`, weight: 2 };
+    return { check: 'title_tag', status: 'warning', message: `Title length is ${title.length} chars. Ideal range is 30-60.`, weight: 2, details: { title, length: title.length } };
   }
-  return { check: 'title_tag', status: 'pass', message: `Title looks good ("${title}").`, weight: 2 };
+  return { check: 'title_tag', status: 'pass', message: `Title looks good ("${title}").`, weight: 2, details: { title, length: title.length } };
 }
 
   private checkMetaDescription($: cheerio.CheerioAPI): SeoCheckResult {
     const desc = $('meta[name="description"]').attr('content')?.trim();
     if (!desc) {
-      return { check: 'meta_description', status: 'fail', message: 'No meta description found.', weight: 2 };
+      return { check: 'meta_description', status: 'fail', message: 'No meta description found.', weight: 2, details: { length: 0 } };
     }
     if (desc.length < 120 || desc.length > 160) {
-      return { check: 'meta_description', status: 'warning', message: `Meta description is ${desc.length} chars. Ideal range is 120-160.`, weight: 2 };
+      return { check: 'meta_description', status: 'warning', message: `Meta description is ${desc.length} chars. Ideal range is 120-160.`, weight: 2, details: { description: desc, length: desc.length } };
     }
-    return { check: 'meta_description', status: 'pass', message: 'Meta description looks good.', weight: 2 };
+    return { check: 'meta_description', status: 'pass', message: 'Meta description looks good.', weight: 2, details: { description: desc, length: desc.length } };
   }
 
   private checkH1($: cheerio.CheerioAPI): SeoCheckResult {
     const h1s = $('h1');
+    const headings = h1s
+      .map((_, el) => $(el).text().trim())
+      .get()
+      .filter((text) => text.length > 0)
+      .slice(0, 5);
     if (h1s.length === 0) {
-      return { check: 'h1_tag', status: 'fail', message: 'No H1 tag found on the page.', weight: 2 };
+      return { check: 'h1_tag', status: 'fail', message: 'No H1 tag found on the page.', weight: 2, details: { count: 0, headings: [] } };
     }
     if (h1s.length > 1) {
-      return { check: 'h1_tag', status: 'warning', message: `Found ${h1s.length} H1 tags. Best practice is exactly one.`, weight: 2 };
+      return { check: 'h1_tag', status: 'warning', message: `Found ${h1s.length} H1 tags. Best practice is exactly one.`, weight: 2, details: { count: h1s.length, headings } };
     }
-    return { check: 'h1_tag', status: 'pass', message: 'Exactly one H1 tag found.', weight: 2 };
+    return { check: 'h1_tag', status: 'pass', message: 'Exactly one H1 tag found.', weight: 2, details: { count: 1, headings } };
   }
 
   private checkHeadingStructure($: cheerio.CheerioAPI): SeoCheckResult {
     const h2Count = $('h2').length;
     if (h2Count === 0) {
-      return { check: 'heading_structure', status: 'warning', message: 'No H2 tags found. Sub-headings help content structure and SEO.', weight: 1 };
+      return { check: 'heading_structure', status: 'warning', message: 'No H2 tags found. Sub-headings help content structure and SEO.', weight: 1, details: { h2Count: 0 } };
     }
-    return { check: 'heading_structure', status: 'pass', message: `Found ${h2Count} H2 tags.`, weight: 1 };
+    return { check: 'heading_structure', status: 'pass', message: `Found ${h2Count} H2 tags.`, weight: 1, details: { h2Count } };
   }
 
   private checkImageAlts($: cheerio.CheerioAPI): SeoCheckResult {
@@ -228,20 +253,26 @@ export class SeoAnalyzerService implements OnModuleDestroy {
     });
 
     if (loadedImages.length === 0) {
-      return { check: 'image_alt_tags', status: 'pass', message: 'No images found on the page.', weight: 1 };
+      return { check: 'image_alt_tags', status: 'pass', message: 'No images found on the page.', weight: 1, details: { total: 0, missing: 0 } };
     }
 
-    const missing = loadedImages.filter((_, el) => !$(el).attr('alt')?.trim()).length;
+    const missingImages = loadedImages.filter((_, el) => !$(el).attr('alt')?.trim());
+    const missing = missingImages.length;
     if (missing > 0) {
-      return { check: 'image_alt_tags', status: 'fail', message: `${missing} of ${loadedImages.length} images are missing alt text.`, weight: 1 };
+      const samples = missingImages
+        .map((_, el) => $(el).attr('src')?.trim() || '')
+        .get()
+        .filter((src) => src.length > 0)
+        .slice(0, 5);
+      return { check: 'image_alt_tags', status: 'fail', message: `${missing} of ${loadedImages.length} images are missing alt text.`, weight: 1, details: { total: loadedImages.length, missing, samples } };
     }
-    return { check: 'image_alt_tags', status: 'pass', message: 'All images have alt text.', weight: 1 };
+    return { check: 'image_alt_tags', status: 'pass', message: 'All images have alt text.', weight: 1, details: { total: loadedImages.length, missing: 0 } };
   }
 
   private checkCanonical($: cheerio.CheerioAPI, pageUrl?: string): SeoCheckResult {
     const canonical = $('link[rel="canonical"]').attr('href');
     if (!canonical) {
-      return { check: 'canonical_tag', status: 'warning', message: 'No canonical tag found.', weight: 2 };
+      return { check: 'canonical_tag', status: 'warning', message: 'No canonical tag found.', weight: 2, details: { canonical: null, pageUrl: pageUrl ?? null } };
     }
 
     if (pageUrl) {
@@ -259,6 +290,7 @@ export class SeoAnalyzerService implements OnModuleDestroy {
             status: 'warning',
             message: `Canonical tag points to a different URL (${canonical}) — this page may be treated as a duplicate. Verify this is intentional.`,
             weight: 2,
+            details: { canonical, pageUrl },
           };
         }
       } catch {
@@ -266,34 +298,39 @@ export class SeoAnalyzerService implements OnModuleDestroy {
       }
     }
 
-    return { check: 'canonical_tag', status: 'pass', message: `Canonical tag set to ${canonical}.`, weight: 2 };
+    return { check: 'canonical_tag', status: 'pass', message: `Canonical tag set to ${canonical}.`, weight: 2, details: { canonical, pageUrl: pageUrl ?? null } };
   }
 
   private checkViewport($: cheerio.CheerioAPI): SeoCheckResult {
     const viewport = $('meta[name="viewport"]').attr('content');
     if (!viewport) {
-      return { check: 'mobile_viewport', status: 'fail', message: 'No viewport meta tag — page may not be mobile-friendly.', weight: 2 };
+      return { check: 'mobile_viewport', status: 'fail', message: 'No viewport meta tag — page may not be mobile-friendly.', weight: 2, details: { content: null } };
     }
-    return { check: 'mobile_viewport', status: 'pass', message: 'Viewport meta tag present.', weight: 2 };
+    return { check: 'mobile_viewport', status: 'pass', message: 'Viewport meta tag present.', weight: 2, details: { content: viewport } };
   }
 
   private checkHttps(isHttps: boolean): SeoCheckResult {
+    const details = { protocol: isHttps ? 'https' : 'http' };
     if (!isHttps) {
-      return { check: 'https', status: 'fail', message: 'Site is not served over HTTPS.', weight: 3 };
+      return { check: 'https', status: 'fail', message: 'Site is not served over HTTPS.', weight: 3, details };
     }
-    return { check: 'https', status: 'pass', message: 'Site uses HTTPS.', weight: 3 };
+    return { check: 'https', status: 'pass', message: 'Site uses HTTPS.', weight: 3, details };
   }
 
   private checkOpenGraph($: cheerio.CheerioAPI): SeoCheckResult {
     const ogTitle = $('meta[property="og:title"]').attr('content');
     const ogDesc = $('meta[property="og:description"]').attr('content');
     const ogImage = $('meta[property="og:image"]').attr('content');
-    const missing = [!ogTitle && 'og:title', !ogDesc && 'og:description', !ogImage && 'og:image'].filter(Boolean);
+    const missing: string[] = [
+      ...(!ogTitle ? ['og:title'] : []),
+      ...(!ogDesc ? ['og:description'] : []),
+      ...(!ogImage ? ['og:image'] : []),
+    ];
 
     if (missing.length > 0) {
-      return { check: 'open_graph_tags', status: 'warning', message: `Missing Open Graph tags: ${missing.join(', ')}.`, weight: 1 };
+      return { check: 'open_graph_tags', status: 'warning', message: `Missing Open Graph tags: ${missing.join(', ')}.`, weight: 1, details: { missing } };
     }
-    return { check: 'open_graph_tags', status: 'pass', message: 'All key Open Graph tags present.', weight: 1 };
+    return { check: 'open_graph_tags', status: 'pass', message: 'All key Open Graph tags present.', weight: 1, details: { missing: [] } };
   }
 
  private async fetchPsiWithRetry(url: string, maxRetries = 2): Promise<AxiosResponse<PageSpeedInsightsResponse>> {
@@ -432,7 +469,7 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
   private checkStructuredData($: cheerio.CheerioAPI): SeoCheckResult {
     const scripts = $('script[type="application/ld+json"]');
     if (scripts.length === 0) {
-      return { check: 'structured_data', status: 'warning', message: 'No structured data (JSON-LD) found on the page.', weight: 2 };
+      return { check: 'structured_data', status: 'warning', message: 'No structured data (JSON-LD) found on the page.', weight: 2, details: { blocks: 0, types: [] } };
     }
 
     const requiredFieldsByType: Record<string, string[]> = {
@@ -441,6 +478,7 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
     };
 
     const problems: string[] = [];
+    const types: string[] = [];
     let validCount = 0;
 
     scripts.each((_, el) => {
@@ -451,6 +489,13 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
         problems.push('a block contains invalid JSON');
         return;
       }
+
+      const type = Array.isArray(parsed['@type'])
+        ? parsed['@type'].join('/')
+        : typeof parsed['@type'] === 'string'
+          ? parsed['@type']
+          : undefined;
+      if (type) types.push(type);
 
       const required = requiredFieldsByType[parsed['@type']];
       if (!required) {
@@ -471,15 +516,15 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
     });
 
     if (problems.length > 0) {
-      return { check: 'structured_data', status: 'fail', message: `Structured data issues: ${problems.join('; ')}.`, weight: 2 };
+      return { check: 'structured_data', status: 'fail', message: `Structured data issues: ${problems.join('; ')}.`, weight: 2, details: { blocks: scripts.length, validCount, types, problems } };
     }
-    return { check: 'structured_data', status: 'pass', message: `${validCount} valid structured data block(s) found.`, weight: 2 };
+    return { check: 'structured_data', status: 'pass', message: `${validCount} valid structured data block(s) found.`, weight: 2, details: { blocks: scripts.length, validCount, types } };
   }
 
   private checkHreflang($: cheerio.CheerioAPI): SeoCheckResult {
     const tags = $('link[rel="alternate"][hreflang]');
     if (tags.length === 0) {
-      return { check: 'hreflang', status: 'pass', message: 'No hreflang tags found (fine for single-language sites).', weight: 1 };
+      return { check: 'hreflang', status: 'pass', message: 'No hreflang tags found (fine for single-language sites).', weight: 1, details: { count: 0 } };
     }
 
     const bcp47Pattern = /^([a-zA-Z]{2,3})(-[a-zA-Z0-9]{2,8})*$|^x-default$/;
@@ -493,13 +538,15 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
       if (pageLang && value.toLowerCase() === pageLang) hasSelfReference = true;
     });
 
+    const details = { count: tags.length, pageLang: pageLang ?? null, invalid, hasSelfReference };
+
     if (invalid.length > 0) {
-      return { check: 'hreflang', status: 'fail', message: `Invalid hreflang value(s): ${invalid.join(', ')}.`, weight: 1 };
+      return { check: 'hreflang', status: 'fail', message: `Invalid hreflang value(s): ${invalid.join(', ')}.`, weight: 1, details };
     }
     if (pageLang && !hasSelfReference) {
-      return { check: 'hreflang', status: 'warning', message: `No self-referencing hreflang entry for the page's own language (${pageLang}).`, weight: 1 };
+      return { check: 'hreflang', status: 'warning', message: `No self-referencing hreflang entry for the page's own language (${pageLang}).`, weight: 1, details };
     }
-    return { check: 'hreflang', status: 'pass', message: 'hreflang tags are valid.', weight: 1 };
+    return { check: 'hreflang', status: 'pass', message: 'hreflang tags are valid.', weight: 1, details };
   }
 
   private checkMetaRobots($: cheerio.CheerioAPI): SeoCheckResult {
@@ -507,21 +554,22 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
     const weight = 3;
 
     if (!content) {
-      return { check: 'meta_robots', status: 'pass', message: 'No meta robots restrictions found.', weight };
+      return { check: 'meta_robots', status: 'pass', message: 'No meta robots restrictions found.', weight, details: { content: null } };
     }
     if (content.includes('noindex')) {
-      return { check: 'meta_robots', status: 'warning', message: `Page has content="${content}" — this tells search engines NOT to index it. Confirm that's intentional.`, weight };
+      return { check: 'meta_robots', status: 'warning', message: `Page has content="${content}" — this tells search engines NOT to index it. Confirm that's intentional.`, weight, details: { content } };
     }
-    return { check: 'meta_robots', status: 'pass', message: `Meta robots set to "${content}".`, weight };
+    return { check: 'meta_robots', status: 'pass', message: `Meta robots set to "${content}".`, weight, details: { content } };
   }
 
   private async checkRobotsTxtContent(url: string): Promise<SeoCheckResult> {
     try {
       const base = new URL(url);
-      const res = await axios.get<string>(`${base.protocol}//${base.host}/robots.txt`, { timeout: 5000, validateStatus: () => true });
+      const robotsUrl = `${base.protocol}//${base.host}/robots.txt`;
+      const res = await axios.get<string>(robotsUrl, { timeout: 5000, validateStatus: () => true });
 
       if (res.status !== 200) {
-        return { check: 'robots_txt_content', status: 'warning', message: 'robots.txt not found or not accessible.', weight: 2 };
+        return { check: 'robots_txt_content', status: 'warning', message: 'robots.txt not found or not accessible.', weight: 2, details: { url: robotsUrl, statusCode: res.status } };
       }
 
       const lines = String(res.data).split('\n').map((l) => l.trim().toLowerCase());
@@ -537,10 +585,12 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
         }
       }
 
+      const details = { url: robotsUrl, statusCode: res.status, blocksEverything };
+
       if (blocksEverything) {
-        return { check: 'robots_txt_content', status: 'fail', message: 'robots.txt disallows "/" for all crawlers — the entire site is blocked from indexing.', weight: 3 };
+        return { check: 'robots_txt_content', status: 'fail', message: 'robots.txt disallows "/" for all crawlers — the entire site is blocked from indexing.', weight: 3, details };
       }
-      return { check: 'robots_txt_content', status: 'pass', message: 'robots.txt does not fully block crawling.', weight: 2 };
+      return { check: 'robots_txt_content', status: 'pass', message: 'robots.txt does not fully block crawling.', weight: 2, details };
     } catch {
       return { check: 'robots_txt_content', status: 'warning', message: 'Could not fetch or parse robots.txt.', weight: 2 };
     }
@@ -747,12 +797,12 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
   private checkLangAttribute($: cheerio.CheerioAPI): SeoCheckResult {
     const lang = $('html').attr('lang');
     if (!lang) {
-      return { check: 'lang_attribute', status: 'fail', message: 'No lang attribute on the <html> tag.', weight: 1 };
+      return { check: 'lang_attribute', status: 'fail', message: 'No lang attribute on the <html> tag.', weight: 1, details: { lang: null } };
     }
     if (!/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/.test(lang)) {
-      return { check: 'lang_attribute', status: 'warning', message: `<html lang="${lang}"> doesn't look like a valid language code.`, weight: 1 };
+      return { check: 'lang_attribute', status: 'warning', message: `<html lang="${lang}"> doesn't look like a valid language code.`, weight: 1, details: { lang } };
     }
-    return { check: 'lang_attribute', status: 'pass', message: `Language declared as "${lang}".`, weight: 1 };
+    return { check: 'lang_attribute', status: 'pass', message: `Language declared as "${lang}".`, weight: 1, details: { lang } };
   }
 
   private checkCharset($: cheerio.CheerioAPI, headers: Record<string, string> = {}): SeoCheckResult {
@@ -765,11 +815,12 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
   const headerContentType = normalizedHeaders['content-type']?.toLowerCase();
 
   const hasUtf8 = metaCharset?.includes('utf-8') || headerContentType?.includes('utf-8');
+  const details = { metaCharset: metaCharset ?? null, headerContentType: headerContentType ?? null };
 
   if (!hasUtf8) {
-    return { check: 'charset', status: 'warning', message: 'No UTF-8 charset declared in meta tag or Content-Type header.', weight: 1 };
+    return { check: 'charset', status: 'warning', message: 'No UTF-8 charset declared in meta tag or Content-Type header.', weight: 1, details };
   }
-  return { check: 'charset', status: 'pass', message: 'UTF-8 charset declared.', weight: 1 };
+  return { check: 'charset', status: 'pass', message: 'UTF-8 charset declared.', weight: 1, details };
 }
 
  private checkKeywordStuffing($: cheerio.CheerioAPI): SeoCheckResult {
@@ -786,6 +837,7 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
         status: 'pass',
         message: `Page has only ${words.length} words after filtering — too little content to reliably evaluate keyword stuffing.`,
         weight: 1,
+        details: { words: words.length },
       };
     }
 
@@ -799,10 +851,11 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
     }
 
     const ratio = topCount / words.length;
+    const details = { words: words.length, word: topWord, count: topCount, ratio: Math.round(ratio * 1000) / 1000 };
     if (ratio > 0.05 && topCount >= 8) {
-      return { check: 'keyword_stuffing', status: 'warning', message: `The word "${topWord}" makes up ${(ratio * 100).toFixed(1)}% of the page's text (${topCount} occurrences) — possible keyword stuffing.`, weight: 1 };
+      return { check: 'keyword_stuffing', status: 'warning', message: `The word "${topWord}" makes up ${(ratio * 100).toFixed(1)}% of the page's text (${topCount} occurrences) — possible keyword stuffing.`, weight: 1, details };
     }
-    return { check: 'keyword_stuffing', status: 'pass', message: 'No excessive keyword repetition detected.', weight: 1 };
+    return { check: 'keyword_stuffing', status: 'pass', message: 'No excessive keyword repetition detected.', weight: 1, details };
   }
 
 private async checkUrlReachable(url: string): Promise<number> {
@@ -862,7 +915,7 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
 
   const sample = Array.from(links).slice(0, 20);
   if (sample.length === 0) {
-    return { check: 'broken_internal_links', status: 'pass', message: 'No internal links found to check.', weight: 2 };
+    return { check: 'broken_internal_links', status: 'pass', message: 'No internal links found to check.', weight: 2, details: { checked: 0, broken: [] } };
   }
 
   
@@ -886,9 +939,11 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
       status: 'fail',
       message: `${brokenLinks.length} of ${sample.length} checked internal links are broken: ${details}.`,
       weight: 2,
+      // status 0 = no HTTP response (timeout / unreachable).
+      details: { checked: sample.length, broken: brokenLinks },
     };
   }
-  return { check: 'broken_internal_links', status: 'pass', message: `Checked ${sample.length} internal links — all reachable.`, weight: 2 };
+  return { check: 'broken_internal_links', status: 'pass', message: `Checked ${sample.length} internal links — all reachable.`, weight: 2, details: { checked: sample.length, broken: [] } };
 }
 
   private checkSecurityHeaders(headers: Record<string, string>): SeoCheckResult {
@@ -897,9 +952,9 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
     const missing = required.filter((h) => !normalized[h]);
 
     if (missing.length > 0) {
-      return { check: 'security_headers', status: 'warning', message: `Missing security headers: ${missing.join(', ')}.`, weight: 1 };
+      return { check: 'security_headers', status: 'warning', message: `Missing security headers: ${missing.join(', ')}.`, weight: 1, details: { required, missing } };
     }
-    return { check: 'security_headers', status: 'pass', message: 'All key security headers are present.', weight: 1 };
+    return { check: 'security_headers', status: 'pass', message: 'All key security headers are present.', weight: 1, details: { required, missing: [] } };
   }
 
   private computeScore(results: SeoCheckResult[]): number {

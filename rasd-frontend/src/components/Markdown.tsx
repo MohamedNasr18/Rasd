@@ -7,8 +7,8 @@ export default function Markdown({ children }: { children: string }) {
       remarkPlugins={[remarkGfm]}
       components={{
         p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
-        ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pr-5">{children}</ul>,
-        ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pr-5">{children}</ol>,
+        ul: ({ children }) => <ul className="my-2 list-disc space-y-1 ps-5">{children}</ul>,
+        ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 ps-5">{children}</ol>,
         h1: ({ children }) => <h3 className="mb-1 mt-3 text-base font-bold">{children}</h3>,
         h2: ({ children }) => <h3 className="mb-1 mt-3 text-base font-bold">{children}</h3>,
         h3: ({ children }) => <h4 className="mb-1 mt-3 font-semibold">{children}</h4>,
@@ -23,7 +23,7 @@ export default function Markdown({ children }: { children: string }) {
           </div>
         ),
         th: ({ children }) => (
-          <th className="border bg-gray-200 px-2 py-1 text-right font-medium">{children}</th>
+          <th className="border bg-gray-200 px-2 py-1 text-start font-medium">{children}</th>
         ),
         td: ({ children }) => <td className="border px-2 py-1 align-top">{children}</td>,
         pre: ({ children }) => (

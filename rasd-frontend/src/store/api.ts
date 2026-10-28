@@ -25,17 +25,23 @@ export const api = createApi({
       query: (id) => `/site-scan/${id}/history`,
       providesTags: (_r, _e, id) => [{ type: 'SiteScan', id }],
     }),
-    generateReport: build.mutation<{ jobId?: string; siteScanId: string }, string>({
-      query: (id) => ({ url: `/site-scan/${id}/report`, method: 'POST' }),
-      invalidatesTags: (_r, _e, id) => [{ type: 'Report', id }],
+    generateReport: build.mutation<
+      { jobId?: string; siteScanId: string },
+      { id: string; lang: string }
+    >({
+      query: ({ id, lang }) => ({
+        url: `/site-scan/${id}/report?lang=${lang}`,
+        method: 'POST',
+      }),
+      invalidatesTags: (_r, _e, { id }) => [{ type: 'Report', id }],
     }),
-    getReport: build.query<ReportResponse, string>({
-      query: (id) => `/site-scan/${id}/report`,
-      providesTags: (_r, _e, id) => [{ type: 'Report', id }],
+    getReport: build.query<ReportResponse, { id: string; lang: string }>({
+      query: ({ id, lang }) => `/site-scan/${id}/report?lang=${lang}`,
+      providesTags: (_r, _e, { id }) => [{ type: 'Report', id }],
     }),
     sendChatMessage: build.mutation<
   ChatReply,
-  { siteScanId: string; message: string; conversationId?: string }
+  { siteScanId: string; message: string; conversationId?: string; lang: string }
 >({
   query: ({ siteScanId, ...body }) => ({
     url: `/site-scan/${siteScanId}/chat`,

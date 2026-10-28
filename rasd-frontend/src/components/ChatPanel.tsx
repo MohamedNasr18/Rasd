@@ -4,26 +4,25 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks';
 import { useSendChatMessageMutation } from '@/store/api';
 import { assistantReplied, chatReset, userMessageAdded, type LocalMessage } from '@/store/slices/chatSlice';
 import Markdown from './Markdown';
-
-const SUGGESTIONS = [
-  'إيه أهم مشكلة أبدأ بيها؟',
-  'إزاي أحسّن Core Web Vitals؟',
-  'أعد فحص الصفحة الرئيسية وقولي اتحسنت ولا لأ',
-];
+import { useI18n } from '@/i18n/I18nProvider';
 
 const EMPTY: LocalMessage[] = [];
 
 export default function ChatPanel({ siteScanId }: { siteScanId: string }) {
+  const { locale, dict } = useI18n();
+  const copy = dict.chat;
   const dispatch = useAppDispatch();
   const conversationId = useAppSelector((s) => s.chat.byScan[siteScanId]?.conversationId);
   const messages = useAppSelector((s) => s.chat.byScan[siteScanId]?.messages ?? EMPTY);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [send, { isLoading }] = useSendChatMessageMutation();
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = listRef.current;
+    if (!el || messages.length === 0) return;
+    el.scrollTop = el.scrollHeight;
   }, [messages.length, isLoading]);
 
   async function submit(text: string) {
@@ -33,7 +32,7 @@ export default function ChatPanel({ siteScanId }: { siteScanId: string }) {
     setInput('');
     dispatch(userMessageAdded({ siteScanId, content: message }));
     try {
-      const res = await send({ siteScanId, message, conversationId }).unwrap();
+      const res = await send({ siteScanId, message, conversationId, lang: locale }).unwrap();
       dispatch(
         assistantReplied({
           siteScanId,
@@ -42,31 +41,31 @@ export default function ChatPanel({ siteScanId }: { siteScanId: string }) {
         }),
       );
     } catch {
-      setError('البوت مردش. اتأكد إن الباك اند شغال وجرب تاني.');
+      setError(copy.error);
     }
   }
 
   return (
     <section>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">اسأل رصد</h2>
+        <h2 className="text-lg font-semibold">{copy.title}</h2>
         {messages.length > 0 && (
           <button
             onClick={() => dispatch(chatReset(siteScanId))}
             className="text-sm text-gray-500 hover:text-gray-800"
           >
-            محادثة جديدة
+            {copy.newConversation}
           </button>
         )}
       </div>
 
       <div className="rounded-lg border bg-white">
-        <div className="h-96 space-y-3 overflow-y-auto p-4">
+        <div ref={listRef} className="h-96 space-y-3 overflow-y-auto p-4">
           {messages.length === 0 && (
             <div className="space-y-2 text-sm text-gray-500">
-              <p>اسأل عن نتايج موقعك أو عن طريقة حل أي مشكلة. جرب:</p>
+              <p>{copy.intro}</p>
               <div className="flex flex-wrap gap-2">
-                {SUGGESTIONS.map((q) => (
+                {copy.suggestions.map((q) => (
                   <button
                     key={q}
                     onClick={() => submit(q)}
@@ -81,24 +80,24 @@ export default function ChatPanel({ siteScanId }: { siteScanId: string }) {
 
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === 'user' ? 'justify-start' : 'justify-end'}`}>
-             <div
-  className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
-    m.role === 'user' ? 'whitespace-pre-wrap bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
-  }`}
->
-  {m.role === 'user' ? m.content : <Markdown>{m.content}</Markdown>}
-</div>
+              <div
+                dir="auto"
+                className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
+                  m.role === 'user' ? 'whitespace-pre-wrap bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'
+                }`}
+              >
+                {m.role === 'user' ? m.content : <Markdown>{m.content}</Markdown>}
+              </div>
             </div>
           ))}
 
           {isLoading && (
             <div className="flex justify-end">
               <div className="rounded-2xl bg-gray-100 px-4 py-2 text-sm text-gray-500">
-                بيفكر... (لو طلبت إعادة فحص ممكن ياخد وقت)
+                {copy.thinking}
               </div>
             </div>
           )}
-          <div ref={bottomRef} />
         </div>
 
         {error && <p className="px-4 pb-2 text-sm text-red-600">{error}</p>}
@@ -113,14 +112,14 @@ export default function ChatPanel({ siteScanId }: { siteScanId: string }) {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="اكتب سؤالك..."
+            placeholder={copy.placeholder}
             className="flex-1 rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           />
           <button
             disabled={isLoading || !input.trim()}
             className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            إرسال
+            {copy.send}
           </button>
         </form>
       </div>

@@ -35,28 +35,55 @@ export class SeoProcessor extends WorkerHost {
     return this.processPageScan(url, siteId, siteScanId);
   }
 
+  private async setStage(
+    siteScanId: string,
+    kind: 'page' | 'site',
+    url: string,
+    stage: string,
+    score?: number,
+  ) {
+    try {
+      await this.prisma.pageProgress.update({
+        where: { siteScanId_kind_url: { siteScanId, kind, url } },
+        data: score === undefined ? { stage } : { stage, score },
+      });
+    } catch (err) {
+      // Progress is best-effort — a missing row must never fail the scan itself.
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Could not record stage "${stage}" for ${url}: ${message}`);
+    }
+  }
+
   private async processSiteLevelChecks(url: string, siteScanId: string) {
     this.logger.log(`Running site-level checks (robots.txt, sitemap.xml) for ${url}`);
+    await this.setStage(siteScanId, 'site', url, 'analyzing');
     try {
       const results = await this.analyzer.analyzeSiteLevel(url);
       await this.prisma.siteScan.update({
         where: { id: siteScanId },
         data: { siteLevelResults: results as unknown as Prisma.InputJsonValue },
       });
+      await this.setStage(siteScanId, 'site', url, 'done');
       return { type: 'site-level', url, score: null, results };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Site-level checks failed for ${url}: ${message}`);
+      await this.setStage(siteScanId, 'site', url, 'failed');
       return { type: 'site-level', url, score: null, error: message };
     }
   }
 
   private async processPageScan(url: string, siteId: string, siteScanId: string) {
     this.logger.log(`Scanning page ${url} (siteScan ${siteScanId})`);
+    await this.setStage(siteScanId, 'page', url, 'rendering');
     try {
       const { html, headers } = await this.renderer.renderPage(url);
-      const { score, results } = await this.analyzer.analyze(html, url, headers);
+      await this.setStage(siteScanId, 'page', url, 'analyzing');
+      const { score, results } = await this.analyzer.analyze(html, url, headers, (stage) =>
+        this.setStage(siteScanId, 'page', url, stage),
+      );
 
+      await this.setStage(siteScanId, 'page', url, 'saving');
       const scan = await this.prisma.scan.create({
         data: {
           siteId,
@@ -72,11 +99,13 @@ export class SeoProcessor extends WorkerHost {
         where: { id: siteScanId },
         data: { completedPages: { increment: 1 } },
       });
+      await this.setStage(siteScanId, 'page', url, 'done', score);
 
       return { type: 'page', scanId: scan.id, url, score };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Failed to scan ${url}: ${message}`);
+      await this.setStage(siteScanId, 'page', url, 'failed');
       await this.prisma.siteScan.update({
         where: { id: siteScanId },
         data: { completedPages: { increment: 1 } },

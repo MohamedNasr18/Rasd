@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { SeoCheckResult, CheckStatus } from '../seo/seo-analyzer.service.js';
 import type { UnmeasuredMetric } from './schemas/report.schema.js';
+import { buildEvidence, translateEvidenceMessage } from './evidence.js';
+import type { Language } from '../common/language.js';
 
 export type IssueSeverity = 'critical' | 'moderate' | 'minor';
 
@@ -13,7 +15,8 @@ export interface AggregatedCheck {
   unknownCount: number;
   passCount: number;
   affectedPageUrls: string[];
-  sampleMessages: string[];
+  /** Every distinct per-page message, with how many pages produced it. */
+  messageCounts: Record<string, number>;
   /** Metric keys (e.g. INP) that the check could not measure, and on how many pages. */
   unmeasured: Record<string, number>;
 }
@@ -40,7 +43,6 @@ export interface SiteReportContext {
 }
 
 const MAX_AFFECTED_URLS = 50;
-const MAX_SAMPLE_MESSAGES = 3;
 
 /**
  * Severity is a rule, not an opinion: it comes from the check weight (impact)
@@ -54,26 +56,15 @@ export function severityFor(check: Pick<AggregatedCheck, 'failCount' | 'weight'>
   return check.weight >= 2 ? 'moderate' : 'minor';
 }
 
-export function evidenceFor(check: AggregatedCheck): string {
-  const total = check.failCount + check.warningCount + check.unknownCount + check.passCount;
-  const counts = `${check.failCount} فشل و${check.warningCount} تحذير من ${total} صفحة`;
-  const parts = check.sampleMessages.length > 0 ? [check.sampleMessages.join(' | ')] : [];
-  const unmeasured = Object.entries(check.unmeasured);
-  if (unmeasured.length > 0) {
-    parts.push(
-      `لم يُقس: ${unmeasured
-        .map(([metric, pages]) => `${metric} (${pages === 1 ? 'صفحة واحدة' : `${pages} صفحات`})`)
-        .join(', ')}`,
-    );
-  }
-  return parts.length > 0 ? `${counts} — ${parts.join(' | ')}` : counts;
+export function evidenceFor(check: AggregatedCheck, lang: Language = 'ar'): string {
+  return buildEvidence(check, lang);
 }
 
 @Injectable()
 export class ReportAggregatorService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async buildContext(siteScanId: string): Promise<SiteReportContext> {
+  async buildContext(siteScanId: string, lang: Language = 'ar'): Promise<SiteReportContext> {
     const siteScan = await this.prisma.siteScan.findUniqueOrThrow({
       where: { id: siteScanId },
       include: { scans: true, site: true },
@@ -105,7 +96,7 @@ export class ReportAggregatorService {
           metric: metric.toUpperCase(),
           pages,
         })),
-        evidence: evidenceFor(c),
+        evidence: evidenceFor(c, lang),
       }));
 
     const siteLevelResults =
@@ -122,7 +113,7 @@ export class ReportAggregatorService {
         affectedPagesCount: siteScan.pageCount,
         affectedPages: [],
         unmeasured: [],
-        evidence: result.message,
+        evidence: translateEvidenceMessage(result.message, lang),
       };
     });
 
@@ -167,7 +158,7 @@ export class ReportAggregatorService {
         unknownCount: 0,
         passCount: 0,
         affectedPageUrls: [],
-        sampleMessages: [],
+        messageCounts: {},
         unmeasured: {},
       });
     }
@@ -175,7 +166,8 @@ export class ReportAggregatorService {
     const entry = map.get(result.check)!;
     this.incrementStatus(entry, result.status);
 
-    const missing = (result.details?.missing as string[] | undefined) ?? [];
+    // `missing` is a list of CWV metric keys, but some checks report a count.
+    const missing = Array.isArray(result.details?.missing) ? (result.details.missing as string[]) : [];
     for (const metric of missing) {
       entry.unmeasured[metric] = (entry.unmeasured[metric] ?? 0) + 1;
     }
@@ -184,9 +176,7 @@ export class ReportAggregatorService {
       if (entry.affectedPageUrls.length < MAX_AFFECTED_URLS) {
         entry.affectedPageUrls.push(pageUrl);
       }
-      if (entry.sampleMessages.length < MAX_SAMPLE_MESSAGES) {
-        entry.sampleMessages.push(result.message);
-      }
+      entry.messageCounts[result.message] = (entry.messageCounts[result.message] ?? 0) + 1;
     }
   }
 
