@@ -1222,12 +1222,7 @@ export default function ScanPage() {
                   </section>
 
                   {data.siteLevelResults && data.siteLevelResults.length > 0 && (
-                    <section>
-                      <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 700 }}>
-                        {copy.siteChecks}
-                      </h2>
-                      <CheckList results={data.siteLevelResults} />
-                    </section>
+                    <CheckList results={data.siteLevelResults} />
                   )}
 
                   <ReportSection
@@ -1238,16 +1233,11 @@ export default function ScanPage() {
                     createdAt={data.createdAt}
                   />
 
-                  <section>
-                    <h2 style={{ margin: '0 0 12px', fontSize: 18, fontWeight: 700 }}>
-                      {copy.pages}
-                    </h2>
-                    <PagesTable
-                      scans={latestScans}
-                      siteScanId={data.id}
-                      previousById={previousById}
-                    />
-                  </section>
+                  <PagesTable
+                    scans={latestScans}
+                    siteScanId={data.id}
+                    previousById={previousById}
+                  />
 
                   <ChatPanel siteScanId={data.id} />
                 </div>

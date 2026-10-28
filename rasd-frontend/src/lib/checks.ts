@@ -21,6 +21,12 @@ export function scoreColor(score: number) {
   return 'text-red-600';
 }
 
+export function scoreBarColor(score: number) {
+  if (score >= 80) return 'bg-green-500';
+  if (score >= 60) return 'bg-amber-500';
+  return 'bg-red-500';
+}
+
 export function countStatuses(results: CheckResult[]) {
   const counts: Record<CheckStatus, number> = { pass: 0, warning: 0, fail: 0, unknown: 0 };
   for (const r of results) counts[r.status] = (counts[r.status] ?? 0) + 1;
