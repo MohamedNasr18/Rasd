@@ -48,7 +48,6 @@ export const api = createApi({
     method: 'POST',
     body,
   }),
-  // الـ agent ممكن يعمل re-scan، فنحدّث بيانات الـ scan
   invalidatesTags: (_r, _e, arg) => [{ type: 'SiteScan', id: arg.siteScanId }],
 }),
 getChatHistory: build.query<

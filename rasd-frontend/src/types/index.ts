@@ -11,11 +11,9 @@ export interface SeoReport {
     affectedPagesCount: number;
     explanation: string;
     recommendation: string;
-    /** الأدلة المقاسة اللي الشرح مبني عليها (بتتحسب في الباك اند). */
     evidence?: string;
     affectedPages?: string[];
     scope?: 'page' | 'site';
-    /** مقاييس الفحص اللي ما قدرش يقيسها. */
     unmeasured?: { metric: string; pages: number }[];
   }[];
   quickWins: string[];
@@ -30,7 +28,6 @@ export interface Scan {
   results: CheckResult[];
   triggeredBy: 'scan' | 'agent_rescan';
   previousScanId: string | null;
-  /** نسخة المحلل اللي أنتجت الفحص — المقارنة بتتعرض بس لو النسختين متطابقتين. */
   analyzerVersion?: string | null;
   createdAt: string;
 }

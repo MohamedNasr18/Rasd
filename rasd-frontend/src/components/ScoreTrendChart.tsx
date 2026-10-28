@@ -23,8 +23,7 @@ export default function ScoreTrendChart({ points }: { points: ScorePoint[] }) {
 
   const data = points.map((p, i) => {
     const previous = points[i - 1];
-    // Several scans can happen on the same day. Show the day once and the time
-    // for the rest, otherwise the x-axis repeats identical day labels.
+    
     const isNewDay = !previous || dayKey(previous.createdAt) !== dayKey(p.createdAt);
     const label = isNewDay
       ? formatDayMonth(locale, p.createdAt)

@@ -19,8 +19,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatDateMedium } from '@/i18n/format';
 import type { PageStage, Scan, ScanStatus } from '@/types';
 
-// Same normalisation as the backend: protocol / www / trailing slash shouldn't
-// split one page into two "latest result" entries.
+
 function normaliseUrl(url: string) {
   return url
     .trim()
@@ -321,7 +320,6 @@ export default function ScanPage() {
   const { locale, dir, dict } = useI18n();
   const copy = dict.scan;
   const { data, isLoading, error, refetch } = useGetSiteScanQuery(id);
-  // Always fetched: the history payload is also where the target site URL lives.
   const { data: history } = useGetScoreHistoryQuery(id);
   const [startScan, { isLoading: retrying }] = useStartScanMutation();
   const [retryError, setRetryError] = useState(false);
@@ -338,7 +336,6 @@ export default function ScanPage() {
 
   const scans = useMemo(() => data?.scans ?? [], [data]);
 
-  // One row per URL: the newest scan wins (agent re-scans included).
   const latestScans = useMemo(() => {
     const byUrl = new Map<string, Scan>();
     for (const scan of scans) byUrl.set(normaliseUrl(scan.url), scan);

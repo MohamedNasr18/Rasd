@@ -539,8 +539,6 @@ function PageDetailsView({
 
   const delta = previous && sameVersion ? scan.score - previous.score : null;
 
-  // A newer re-scan of the same URL can be reached via the "before" link in the
-  // pages table; surface it instead of leaving the user on a stale result.
   const sameUrl = scans.filter((s) => normaliseUrl(s.url) === normaliseUrl(scan.url));
   const latest = sameUrl.reduce<Scan | null>(
     (a, b) => (!a || b.createdAt > a.createdAt ? b : a),
@@ -555,7 +553,6 @@ function PageDetailsView({
       if (copyTimer.current) clearTimeout(copyTimer.current);
       copyTimer.current = setTimeout(() => setCopied(false), 1800);
     } catch {
-      // Clipboard access can be blocked by the browser; nothing to report.
     }
   };
 
