@@ -15,9 +15,7 @@ export interface AggregatedCheck {
   unknownCount: number;
   passCount: number;
   affectedPageUrls: string[];
-  /** Every distinct per-page message, with how many pages produced it. */
   messageCounts: Record<string, number>;
-  /** Metric keys (e.g. INP) that the check could not measure, and on how many pages. */
   unmeasured: Record<string, number>;
 }
 
@@ -44,10 +42,6 @@ export interface SiteReportContext {
 
 const MAX_AFFECTED_URLS = 50;
 
-/**
- * Severity is a rule, not an opinion: it comes from the check weight (impact)
- * and whether the check failed or "only" warned on some pages.
- */
 export function severityFor(check: Pick<AggregatedCheck, 'failCount' | 'weight'>): IssueSeverity {
   if (check.failCount > 0) {
     if (check.weight >= 3) return 'critical';
@@ -122,8 +116,6 @@ export class ReportAggregatorService {
       (a, b) => severityRank[a.severity] - severityRank[b.severity] || b.weight - a.weight,
     );
 
-    // A strength is only a strength when the check passed on *every* page and
-    // nothing was left unmeasured.
     const verifiedStrengths = aggregatedChecks
       .filter(
         (c) =>
@@ -166,7 +158,6 @@ export class ReportAggregatorService {
     const entry = map.get(result.check)!;
     this.incrementStatus(entry, result.status);
 
-    // `missing` is a list of CWV metric keys, but some checks report a count.
     const missing = Array.isArray(result.details?.missing) ? (result.details.missing as string[]) : [];
     for (const metric of missing) {
       entry.unmeasured[metric] = (entry.unmeasured[metric] ?? 0) + 1;

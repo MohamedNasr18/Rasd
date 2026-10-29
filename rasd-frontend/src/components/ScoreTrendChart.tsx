@@ -23,7 +23,7 @@ export default function ScoreTrendChart({ points }: { points: ScorePoint[] }) {
 
   const data = points.map((p, i) => {
     const previous = points[i - 1];
-    
+
     const isNewDay = !previous || dayKey(previous.createdAt) !== dayKey(p.createdAt);
     const label = isNewDay
       ? formatDayMonth(locale, p.createdAt)

@@ -1,10 +1,5 @@
 import { z } from 'zod';
 
-/**
- * What the model is allowed to write: prose only.
- * Severity, affected page counts and evidence are computed from the checks in
- * code (see ReportAggregatorService) so the model cannot invent numbers.
- */
 export const seoReportSchema = z.object({
   executiveSummary: z
     .string()
@@ -41,7 +36,6 @@ export const seoReportSchema = z.object({
 
 export type SeoReportDraft = z.infer<typeof seoReportSchema>;
 
-/** Same shape as the Arabic schema, with English guidance for the model. */
 export const seoReportSchemaEn = z.object({
   executiveSummary: z
     .string()
@@ -89,9 +83,7 @@ export interface SeoReportIssue {
   severity: IssueSeverity;
   affectedPagesCount: number;
   affectedPages: string[];
-  /** Metrics the check could not measure (e.g. INP when CrUX has no data). */
   unmeasured: UnmeasuredMetric[];
-  /** The measured values / raw check output the explanation must be based on. */
   evidence: string;
   explanation: string;
   recommendation: string;

@@ -4,14 +4,6 @@ import { HuggingFaceTransformersEmbeddings } from '@langchain/community/embeddin
 import { PGVectorStore } from '@langchain/community/vectorstores/pgvector';
 import { Document } from '@langchain/core/documents';
 
-/**
- * Curated facts that the crawled documentation does not state explicitly.
- * The web.dev INP article says INP is FID's "successor" but never says FID was
- * retired from Core Web Vitals, so the 500-char chunks alone let the model fall
- * back to its stale memory (FID + onFID).
- *
- * Idempotent: re-running replaces the rows owned by SOURCE.
- */
 const SOURCE = 'Rasd - Core Web Vitals facts';
 
 const FACTS: Array<{ checkType: string; content: string }> = [

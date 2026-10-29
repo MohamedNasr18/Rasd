@@ -38,8 +38,6 @@ describe('SeoAnalyzerService', () => {
 
   describe('checkKeywordStuffing', () => {
     it('flags excessive repetition of a single word', () => {
-      // The check ignores pages under 150 words, so the fixture has to be long
-      // enough to be a meaningful sample.
       const html = `<body>${'buy buy buy buy buy shoe shoe now click here today please '.repeat(30)}</body>`;
       const $ = cheerio.load(html);
       const result = (service as any).checkKeywordStuffing($);

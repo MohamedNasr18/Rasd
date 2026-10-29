@@ -1,7 +1,6 @@
 import type { CheckResult, CheckStatus } from '@/types';
 import type { Dictionary } from '@/i18n/dictionaries';
 
-// أي check مش في القاموس هيظهر باسمه التقني
 export const labelFor = (dict: Dictionary, check: string) =>
   dict.checks.labels[check] ?? check;
 
@@ -33,7 +32,6 @@ export function countStatuses(results: CheckResult[]) {
   return counts;
 }
 
-// المشاكل الأول، وبعدها الأعلى وزناً
 export function sortChecks(results: CheckResult[]) {
   return [...results].sort(
     (a, b) =>

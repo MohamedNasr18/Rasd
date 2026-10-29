@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, useMotionValue, useSpring } from 'framer-motion';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useAuth } from './auth/AuthProvider';
 import LanguageSwitcher from './LanguageSwitcher';
 
 const NAV_ITEMS = [
@@ -14,7 +15,7 @@ const NAV_ITEMS = [
 
 type SectionId = (typeof NAV_ITEMS)[number]['id'];
 
-const HEADER_HEIGHT = 64; 
+const HEADER_HEIGHT = 64;
 
 function scrollToSection(id: string) {
   if (id === 'hero') {
@@ -34,7 +35,12 @@ export default function Header() {
   const router = useRouter();
   const [active, setActive] = useState<SectionId>('hero');
   const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const ticking = useRef(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  const { user, loading: authLoading, guestScanPending, migrationError, openAuth, logout, retryMigration } =
+    useAuth();
 
   const isHome = pathname === '/' || pathname === `/${locale}`;
 
@@ -46,7 +52,7 @@ export default function Header() {
     router.push(id === 'hero' ? `/${locale}` : `/${locale}#${id}`);
   };
 
-  
+
   const progress = useMotionValue(0);
   const scaleX = useSpring(progress, { stiffness: 200, damping: 30, restDelta: 0.001 });
 
@@ -64,7 +70,6 @@ export default function Header() {
     };
   }, [progress]);
 
-  /* header shadow on scroll */
   useEffect(() => {
     const onScroll = () => {
       if (!ticking.current) {
@@ -78,6 +83,28 @@ export default function Header() {
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
+  const onLogout = async () => {
+    setMenuOpen(false);
+    await logout();
+    router.push(`/${locale}`);
+  };
 
   useEffect(() => {
     const sectionIds = NAV_ITEMS.map((n) => n.id);
@@ -211,7 +238,6 @@ export default function Header() {
                       zIndex: 1,
                     }}
                   >
-                    {/* Framer Motion sliding background pill */}
                     {isActive && (
                       <motion.span
                         layoutId="nav-pill"
@@ -236,34 +262,107 @@ export default function Header() {
         {/* ── Auth ── */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LanguageSwitcher />
-          <button
-            className="site-header-login"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              backgroundColor: 'var(--color-surface-container-lowest)',
-              border: '1px solid color-mix(in srgb, var(--color-outline-variant) 70%, transparent)',
-              color: 'var(--color-on-surface)',
-              padding: '6px 12px', borderRadius: 8,
-              fontSize: 13, fontWeight: 500, cursor: 'pointer',
-              transition: 'all 0.15s',
-              fontFamily: 'var(--font-cairo), Cairo, sans-serif',
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
-              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
-              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
-              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
-              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
-            </svg>
-            <span className="site-header-login-label">{dict.nav.login}</span>
-          </button>
-          <div style={{
-            width: 32, height: 32, borderRadius: '50%',
-            backgroundColor: 'var(--color-primary)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-on-primary)' }}>person</span>
-          </div>
+          {user ? (
+            <div ref={menuRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-label={dict.auth.signedInAs}
+                style={{
+                  width: 32, height: 32, borderRadius: '50%',
+                  backgroundColor: 'var(--color-primary)',
+                  border: '1px solid color-mix(in srgb, var(--color-primary) 60%, transparent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: 'pointer', padding: 0, overflow: 'hidden',
+                  color: 'var(--color-on-primary)', fontSize: 13, fontWeight: 700,
+                  backgroundImage: user.avatarUrl ? `url(${user.avatarUrl})` : undefined,
+                  backgroundSize: 'cover', backgroundPosition: 'center',
+                }}
+              >
+                {!user.avatarUrl && user.name.trim().charAt(0).toUpperCase()}
+              </button>
+
+              {menuOpen && (
+                <div
+                  role="menu"
+                  style={{
+                    position: 'absolute', insetInlineEnd: 0, top: 'calc(100% + 10px)',
+                    width: 248, zIndex: 60,
+                    backgroundColor: 'var(--color-surface-container-lowest)',
+                    border: '1px solid color-mix(in srgb, var(--color-outline-variant) 70%, transparent)',
+                    borderRadius: 12,
+                    boxShadow: '0 12px 32px rgba(0,0,0,0.12)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div style={{ padding: '14px 16px', borderBottom: '1px solid color-mix(in srgb, var(--color-outline-variant) 40%, transparent)' }}>
+                    <p style={{ margin: 0, fontSize: 11, color: 'var(--color-outline)' }}>{dict.auth.signedInAs}</p>
+                    <p style={{ margin: '2px 0 0', fontSize: 14, fontWeight: 700, color: 'var(--color-on-surface)' }}>{user.name}</p>
+                    <p dir="ltr" style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-on-surface-variant)', fontFamily: 'var(--font-jetbrains), monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</p>
+                  </div>
+
+                  {guestScanPending && (
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid color-mix(in srgb, var(--color-outline-variant) 40%, transparent)', backgroundColor: '#fffbeb' }}>
+                      <p style={{ margin: 0, fontSize: 11, lineHeight: '18px', color: '#92400e' }}>{dict.auth.migratePending}</p>
+                      {migrationError && <p style={{ margin: '4px 0 0', fontSize: 11, color: '#b91c1c' }}>{dict.auth.migrateFailed}</p>}
+                      <button
+                        type="button"
+                        onClick={() => void retryMigration()}
+                        style={{ marginTop: 8, fontSize: 11, fontWeight: 700, color: '#92400e', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                      >
+                        {dict.auth.migrateRetry}
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void onLogout()}
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '12px 16px', background: 'none', border: 'none',
+                      cursor: 'pointer', fontSize: 13, fontWeight: 500,
+                      color: 'var(--color-on-surface)',
+                      fontFamily: 'var(--font-cairo), Cairo, sans-serif',
+                    }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 18, color: 'var(--color-outline)' }}>logout</span>
+                    {dict.auth.logout}
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="site-header-login"
+              onClick={() => openAuth('login')}
+              disabled={authLoading}
+              aria-label={dict.nav.login}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                backgroundColor: 'var(--color-surface-container-lowest)',
+                border: '1px solid color-mix(in srgb, var(--color-outline-variant) 70%, transparent)',
+                color: 'var(--color-on-surface)',
+                padding: '6px 12px', borderRadius: 8,
+                fontSize: 13, fontWeight: 500, cursor: 'pointer',
+                transition: 'all 0.15s',
+                fontFamily: 'var(--font-cairo), Cairo, sans-serif',
+                opacity: authLoading ? 0.6 : 1,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05" />
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335" />
+              </svg>
+              <span className="site-header-login-label">{dict.nav.login}</span>
+            </button>
+          )}
         </div>
       </div>
     </header>

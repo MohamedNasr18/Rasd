@@ -20,6 +20,16 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Environment
+
+| Variable | Purpose |
+| --- | --- |
+| `BACKEND_URL` | Backend origin used by the `/api/*` rewrite (defaults to `http://localhost:3000`). Not exposed to the browser. |
+| `NEXT_PUBLIC_SITE_URL` | Public site origin used for canonical, hreflang, Open Graph, `robots.txt`, `sitemap.xml` and JSON-LD (defaults to `http://localhost:3001`). |
+
+The browser only talks to the site origin: `/api/*` is rewritten to `BACKEND_URL`, so session cookies stay first-party. Set both variables **before** `next build`; the values are baked into the build output.
+
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

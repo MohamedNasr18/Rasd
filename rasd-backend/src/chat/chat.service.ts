@@ -10,11 +10,6 @@ import type { Language } from '../common/language.js';
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
 
-  /**
-   * Hard facts that must win over whatever the model "remembers" or over
-   * incomplete knowledge-base chunks (the INP article never states that FID
-   * was retired from Core Web Vitals).
-   */
   private static readonly FIXED_FACTS = `حقائق ثابتة (تتغلب على أي معلومة من ذاكرتك):
 - مقاييس Core Web Vitals الحالية ثلاثة فقط: LCP وINP وCLS.
 - مقياس FID اتشال وحل محله INP في مارس 2024. ممنوع تذكره كمقياس حالي أو تعرض كود onFID. لو المستخدم سأل عنه، وضّح إنه متقاعد.`;
@@ -24,11 +19,8 @@ export class ChatService {
 - FID was retired and replaced by INP in March 2024. Never present it as a current metric and never output onFID code. If the user asks about it, clarify that it is retired.`;
 
   private static readonly STALE_RE = /\bFID\b|First Input Delay|onFID/i;
-  // Any wording that says FID is no longer a current metric (Arabic or English).
   private static readonly RETIRED_RE =
     /متقاعد|اتشال|اتشالت|اتوقف|اوقف|إيقاف|ايقاف|موقوف|متوقف|حلّ?\s*(?:محل|مكان)|حلّ?ت(?:ه|ها)|استُ?بدل|بديل|بدّل|بدل|خارج\s*(?:ال)?مقاييس|مش\s*جزء|ما\s*بقىش|لم\s*يعد|ملغى|أُلغي|الغي|retir|replac|deprecat|removed|no longer|sunset|phased out|successor/i;
-  // Using the retired API in a code sample is always wrong, even if the text
-  // around it explains the retirement.
   private static readonly ONFID_CODE_RE = /\bonFID\s*\(/;
 
   constructor(
@@ -116,10 +108,6 @@ export class ChatService {
     });
   }
 
-  /**
-   * Retrieval is mandatory: it runs before the agent on every message instead of
-   * relying on the LLM deciding to call retrieve_seo_knowledge.
-   */
   private async retrieveGuidanceOrEmpty(query: string): Promise<string[]> {
     try {
       return await this.kb.retrieveGuidance(query);

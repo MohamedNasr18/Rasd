@@ -1,17 +1,23 @@
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type {
-  ChatMessage, ChatReply, ReportResponse, ScoreHistory, SiteScanDetail,
+  AuthConfigResponse,
+  AuthMeResponse,
+  AuthSessionResponse,
+  ChatMessage, ChatReply, ReportResponse, ScoreHistory, SignupResponse, SiteScanDetail,
   SiteScanListItem, StartScanResponse,
 } from '@/types';
 
 export const api = createApi({
   reducerPath: 'api',
-  baseQuery: fetchBaseQuery({ baseUrl: process.env.NEXT_PUBLIC_API_URL }),
-  tagTypes: ['SiteScanList', 'SiteScan', 'Report', 'ChatHistory'],
+  baseQuery: fetchBaseQuery({
+    baseUrl: '/api',
+    credentials: 'include',
+  }),
+  tagTypes: ['SiteScanList', 'SiteScan', 'Report', 'ChatHistory', 'Auth'],
   endpoints: (build) => ({
     startScan: build.mutation<StartScanResponse, { url: string }>({
       query: (body) => ({ url: '/scan', method: 'POST', body }),
-      invalidatesTags: ['SiteScanList'],
+      invalidatesTags: ['SiteScanList', 'Auth'],
     }),
     listSiteScans: build.query<SiteScanListItem[], void>({
       query: () => '/site-scan',
@@ -58,6 +64,51 @@ getChatHistory: build.query<
     `/site-scan/${siteScanId}/chat/${conversationId}/history`,
   providesTags: (_r, _e, a) => [{ type: 'ChatHistory', id: a.conversationId }],
 }),
+    getMe: build.query<AuthMeResponse, void>({
+      query: () => '/auth/me',
+      providesTags: ['Auth'],
+    }),
+    getAuthConfig: build.query<AuthConfigResponse, void>({
+      query: () => '/auth/config',
+    }),
+    signup: build.mutation<
+      SignupResponse,
+      { name: string; email: string; password: string }
+    >({
+      query: (body) => ({ url: '/auth/signup', method: 'POST', body }),
+    }),
+    verifyOtp: build.mutation<
+      AuthSessionResponse,
+      { email: string; code: string }
+    >({
+      query: (body) => ({ url: '/auth/verify-otp', method: 'POST', body }),
+      invalidatesTags: ['Auth', 'SiteScanList'],
+    }),
+    resendOtp: build.mutation<
+      { sent: boolean; resendCooldownSeconds: number },
+      { email: string }
+    >({
+      query: (body) => ({ url: '/auth/resend-otp', method: 'POST', body }),
+    }),
+    login: build.mutation<
+      AuthSessionResponse,
+      { email: string; password: string }
+    >({
+      query: (body) => ({ url: '/auth/login', method: 'POST', body }),
+      invalidatesTags: ['Auth', 'SiteScanList'],
+    }),
+    googleSignIn: build.mutation<AuthSessionResponse, { idToken: string }>({
+      query: (body) => ({ url: '/auth/google', method: 'POST', body }),
+      invalidatesTags: ['Auth', 'SiteScanList'],
+    }),
+    logout: build.mutation<{ ok: boolean }, void>({
+      query: () => ({ url: '/auth/logout', method: 'POST' }),
+      invalidatesTags: ['Auth', 'SiteScanList'],
+    }),
+    migrateGuest: build.mutation<{ migrated: number }, void>({
+      query: () => ({ url: '/auth/migrate-guest', method: 'POST' }),
+      invalidatesTags: ['Auth', 'SiteScanList'],
+    }),
   }),
 });
 
@@ -70,4 +121,13 @@ export const {
   useGetReportQuery,
   useSendChatMessageMutation,
   useGetChatHistoryQuery,
+  useGetMeQuery,
+  useGetAuthConfigQuery,
+  useSignupMutation,
+  useVerifyOtpMutation,
+  useResendOtpMutation,
+  useLoginMutation,
+  useGoogleSignInMutation,
+  useLogoutMutation,
+  useMigrateGuestMutation,
 } = api;

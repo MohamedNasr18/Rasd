@@ -7,7 +7,6 @@ import { parseSitemapXml, parseRobotsSitemaps } from './sitemap.utils.js';
 
 export type CheckStatus = 'pass' | 'warning' | 'fail' | 'unknown';
 
-/** Progress stages owned by the analyzer; everything else is the processor's. */
 export type AnalyzeStage = 'speed' | 'links';
 
 export interface SeoCheckResult {
@@ -15,7 +14,6 @@ export interface SeoCheckResult {
   status: CheckStatus;
   message: string;
   weight?: number;
-  /** Structured evidence behind the verdict (measured values, sources, URLs). */
   details?: Record<string, unknown>;
 }
 
@@ -30,8 +28,6 @@ export interface CwvMetric {
   rating: CwvRating;
 }
 
-// Google's thresholds have three bands; treating everything above "good" as a
-// failure overstates the problem (2.6s LCP is "needs improvement", not poor).
 export const CWV_THRESHOLDS: Record<CwvMetricKey, { good: number; poor: number }> = {
   lcp: { good: 2500, poor: 4000 },
   inp: { good: 200, poor: 500 },
@@ -45,10 +41,6 @@ export function rateCwv(key: CwvMetricKey, value: number): CwvRating {
   return 'poor';
 }
 
-/**
- * A metric that was not measured can never make the check "pass": we don't know.
- * Unknown checks are excluded from the score instead of being rewarded/penalised.
- */
 export function cwvStatus(metrics: CwvMetric[], missing: CwvMetricKey[]): CheckStatus {
   if (metrics.some((m) => m.rating === 'poor')) return 'fail';
   if (metrics.some((m) => m.rating === 'needs-improvement')) return 'warning';
@@ -149,8 +141,6 @@ export class SeoAnalyzerService implements OnModuleDestroy {
       this.checkOpenGraph($),
     ];
 
-    // The two network-bound checks are the slow ones, so progress reporting
-    // marks them precisely instead of leaving the page on a generic "analyzing".
     await onStage?.('speed');
     const coreWebVitals = await this.checkCoreWebVitals(url);
 
@@ -244,7 +234,7 @@ export class SeoAnalyzerService implements OnModuleDestroy {
         src === 'about:blank' ||
         src === '#' ||
         /^data:image\/gif;base64,R0lGOD/i.test(src) ||
-        /^data:image\/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB/i.test(src); // 1x1 png
+        /^data:image\/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB/i.test(src);
 
       const hasRealSrc = src.length > 0 && !isPlaceholderSrc;
       const hasRealSrcset = srcset.length > 0;
@@ -294,7 +284,7 @@ export class SeoAnalyzerService implements OnModuleDestroy {
           };
         }
       } catch {
-        
+
       }
     }
 
@@ -392,8 +382,6 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
 
     add('inp', field?.metrics?.INTERACTION_TO_NEXT_PAINT?.percentile, 'ms', 'field');
 
-    // PSI reports the field CLS percentile in hundredths (5 === 0.05); guard for
-    // responses that already use the 0-1 scale.
     const rawFieldCls = field?.metrics?.CUMULATIVE_LAYOUT_SHIFT_SCORE?.percentile;
     add('cls', typeof rawFieldCls === 'number' && rawFieldCls > 1 ? rawFieldCls / 100 : rawFieldCls, '', 'field');
     if (!metrics.some((m) => m.key === 'cls')) {
@@ -721,8 +709,6 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
         };
       }
 
-      // Deterministic sample: first, middle, last — the previous random sample
-      // made the same site flip between pass and warning between runs.
       const picks = [...new Set([
         urls[0],
         urls[Math.floor(urls.length / 2)],
@@ -733,10 +719,8 @@ private async checkCoreWebVitals(url: string): Promise<SeoCheckResult> {
         try {
           const head = await axios.head(target, { timeout: 5000, validateStatus: () => true, maxRedirects: 5 });
           if (head.status < 400) return true;
-          // Plenty of servers reject HEAD while serving the page fine.
           if (![403, 405, 501].includes(head.status)) return false;
         } catch {
-          // fall through to GET
         }
         try {
           const get = await axios.get(target, {
@@ -910,7 +894,7 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
     try {
       const resolved = new URL(href, base);
       if (resolved.host === base.host) links.add(resolved.href);
-    } catch { /* ignore malformed hrefs */ }
+    } catch { }
   });
 
   const sample = Array.from(links).slice(0, 20);
@@ -918,7 +902,7 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
     return { check: 'broken_internal_links', status: 'pass', message: 'No internal links found to check.', weight: 2, details: { checked: 0, broken: [] } };
   }
 
-  
+
   const statuses = await Promise.all(sample.map((link) => this.checkUrlReachableWithRetry(link)));
 
   const brokenLinks = sample
@@ -939,7 +923,6 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
       status: 'fail',
       message: `${brokenLinks.length} of ${sample.length} checked internal links are broken: ${details}.`,
       weight: 2,
-      // status 0 = no HTTP response (timeout / unreachable).
       details: { checked: sample.length, broken: brokenLinks },
     };
   }
@@ -963,8 +946,6 @@ private async checkBrokenInternalLinks($: cheerio.CheerioAPI, url: string): Prom
     let earned = 0;
 
     for (const r of results) {
-      // 'unknown' means "not measured": it must not be scored as a pass or a
-      // failure — score only what we actually verified.
       if (r.status === 'unknown') continue;
       const w = r.weight ?? 1;
       totalWeight += w;

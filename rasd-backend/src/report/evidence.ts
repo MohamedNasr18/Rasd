@@ -1,16 +1,3 @@
-/**
- * Turns raw per-page check messages into one short, de-duplicated Arabic line.
- *
- * The report is client-facing, but `SeoCheckResult.message` is the analyzer's
- * internal English sentence. Showing it verbatim three times (once per page)
- * produced evidence like:
- *
- *   "0 فشل و3 تحذير من 3 صفحة — Title length is 19 chars. ... | ... | ..."
- *
- * Here we collapse identical messages into counts, merge per-page measured
- * values, and translate the known templates. Unknown messages fall back to the
- * original text instead of being dropped.
- */
 import type { Language } from '../common/language.js';
 
 export interface EvidenceInput {
@@ -147,7 +134,6 @@ const PATTERN_TRANSLATIONS: Array<[RegExp, (match: RegExpMatchArray) => string]>
 
 function translateCoreWebVitals(message: string): string {
   return message
-    // Metric ratings first, so "needs improvement" isn't replaced twice.
     .replace(/\(field, poor\)/g, '(ميداني، ضعيف)')
     .replace(/\(field, needs improvement\)/g, '(ميداني، يحتاج تحسين)')
     .replace(/\(field, good\)/g, '(ميداني، جيد)')
@@ -169,7 +155,6 @@ function translateCoreWebVitals(message: string): string {
 
 export function translateEvidenceMessage(message: string, lang: Language = 'ar'): string {
   const text = message.trim();
-  // The analyzer's own messages are already English.
   if (lang === 'en') return text;
 
   if (EXACT_TRANSLATIONS[text]) return EXACT_TRANSLATIONS[text];
@@ -183,7 +168,6 @@ export function translateEvidenceMessage(message: string, lang: Language = 'ar')
     if (match) return translate(match);
   }
 
-  // Unknown template: keep the raw sentence rather than hiding the evidence.
   return text;
 }
 

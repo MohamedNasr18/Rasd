@@ -73,11 +73,6 @@ function formatIssues(context: SiteReportContext, lang: Language): string {
     .join('\n\n');
 }
 
-/**
- * Merges the model's prose with the computed facts. The model can never change
- * severity, page counts, affected URLs or evidence — and any check it invents is
- * ignored.
- */
 export function assembleReport(
   draft: SeoReportDraft,
   context: SiteReportContext,
@@ -96,8 +91,6 @@ export function assembleReport(
     let explanation =
       usableProse(prose?.explanation, lang, 20, 6) ?? fallbackExplanation;
 
-    // Honesty guard: if a metric was not measured, the reader must be told even
-    // when the model forgets it.
     const unmeasuredMentioned =
       lang === 'en'
         ? /not measured|unmeasured/i.test(explanation)

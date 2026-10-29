@@ -293,7 +293,6 @@ export default function ReportSection({
   createdAt,
 }: {
   siteScanId: string;
-  /** وقت آخر إعادة فحص بعد التقرير — بيخلي التنبيه يظهر. */
   rescanAt?: string | null;
   averageScore?: number | null;
   pageCount?: number;

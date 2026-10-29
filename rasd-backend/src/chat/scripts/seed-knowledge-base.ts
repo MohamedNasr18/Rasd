@@ -7,8 +7,8 @@ import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { Document } from '@langchain/core/documents';
 import { DOC_SOURCES, DocSource } from './doc-sources.js';
 
-const MIN_CONTENT_LENGTH = 200; 
-const FETCH_DELAY_MS = 1000; 
+const MIN_CONTENT_LENGTH = 200;
+const FETCH_DELAY_MS = 1000;
 
 async function fetchAndCleanContent(source: DocSource): Promise<string | null> {
   try {
@@ -22,8 +22,6 @@ async function fetchAndCleanContent(source: DocSource): Promise<string | null> {
     const isHtml =
       /html/i.test(contentType) || /^\s*(?:<!doctype html|<html)/i.test(raw);
 
-    // Some docs sites (nextjs.org) serve llms.txt-style markdown to non-browser
-    // user agents, so parsing them with cheerio throws most of the text away.
     const text = isHtml ? extractHtmlText(raw, source) : extractMarkdownText(raw);
 
     if (text.length < MIN_CONTENT_LENGTH) {
@@ -52,8 +50,8 @@ function extractHtmlText(html: string, source: DocSource): string {
 function extractMarkdownText(markdown: string): string {
   return markdown
     .replace(/\r\n/g, '\n')
-    .replace(/^---\n[\s\S]*?\n---\n?/, '') // YAML frontmatter (title/url/description)
-    .replace(/^>?\s*For an index of all (?:available )?documentation.*$/gim, '') // llms.txt boilerplate
+    .replace(/^---\n[\s\S]*?\n---\n?/, '')
+    .replace(/^>?\s*For an index of all (?:available )?documentation.*$/gim, '')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -100,10 +98,6 @@ async function main() {
         }),
     );
 
-    // Idempotency: replace this source's previous chunks instead of appending,
-    // so re-running the seed doesn't duplicate the knowledge base. Matching on
-    // the source label as well means a changed docs URL doesn't leave orphans.
-    // Done only after a successful fetch, so a failed source keeps its rows.
     const deleted = await pgClient.query(
       `DELETE FROM seo_knowledge_base
        WHERE metadata->>'url' = $1 OR metadata->>'source' = $2`,

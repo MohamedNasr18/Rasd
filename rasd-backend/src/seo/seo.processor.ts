@@ -14,7 +14,7 @@ interface ScanJobData {
   type: 'page' | 'site-level';
 }
 
-@Processor('seo-analysis', { concurrency: 3 })
+@Processor('seo-analysis', { concurrency: 1 })
 export class SeoProcessor extends WorkerHost {
   private readonly logger = new Logger(SeoProcessor.name);
 
@@ -48,7 +48,6 @@ export class SeoProcessor extends WorkerHost {
         data: score === undefined ? { stage } : { stage, score },
       });
     } catch (err) {
-      // Progress is best-effort — a missing row must never fail the scan itself.
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Could not record stage "${stage}" for ${url}: ${message}`);
     }

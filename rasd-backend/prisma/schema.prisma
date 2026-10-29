@@ -14,33 +14,87 @@ model Site {
   createdAt DateTime   @default(now())
 }
 
+model User {
+  id                String          @id @default(uuid())
+  name              String
+  email             String          @unique
+  passwordHash      String?
+  emailVerifiedAt   DateTime?
+  googleId          String?         @unique
+  avatarUrl         String?
+  siteScans         SiteScan[]
+  sessions          Session[]
+  emailOtps         EmailOtp[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+}
+
+model Session {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+}
+
+model GuestSession {
+  id         String     @id @default(uuid())
+  tokenHash  String     @unique
+  migratedToId String?
+  siteScans  SiteScan[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+}
+
+model EmailOtp {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash     String
+  attempts     Int       @default(0)
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  lastSentAt   DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+}
+
 model SiteScan {
   id               String   @id @default(uuid())
   siteId           String
   site             Site     @relation(fields: [siteId], references: [id])
+  userId           String?
+  user             User?    @relation(fields: [userId], references: [id])
+  guestSessionId   String?
+  guestSession     GuestSession? @relation(fields: [guestSessionId], references: [id])
   status           String   @default("processing")
   averageScore     Int?
   pageCount        Int
   completedPages   Int      @default(0)
   siteLevelResults Json?
   aiReport         Json?
-  reportStatus     String?  // null | "processing" | "completed" | "failed"
+  reportStatus     String?
   aiReportEn       Json?
-  reportStatusEn   String?  // null | "processing" | "completed" | "failed"
+  reportStatusEn   String?
   scans            Scan[]
   progress         PageProgress[]
   conversations    Conversation[]
   createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([guestSessionId])
 }
 
-// One row per page (plus one for the site-level job). Each seo-analysis worker
-// writes only its own row, so the 3 concurrent workers never clobber each other.
 model PageProgress {
   id         String   @id @default(uuid())
   siteScanId String
   siteScan   SiteScan @relation(fields: [siteScanId], references: [id], onDelete: Cascade)
-  kind       String   @default("page") // "page" | "site"
-  position   Int      @default(0) // discovery order; site row is -1
+  kind       String   @default("page")
+  position   Int      @default(0)
   url        String
   stage      String   @default("queued")
   score      Int?
@@ -59,9 +113,9 @@ model Scan {
   url           String   @default("")
   score         Int
   results       Json
-  triggeredBy   String   @default("scan") // "scan" | "agent_rescan"
+  triggeredBy   String   @default("scan")
   previousScanId String? 
-  analyzerVersion String? // bumped when check logic/thresholds change
+  analyzerVersion String?
   createdAt     DateTime @default(now())
 }
 model Conversation {
@@ -76,7 +130,7 @@ model Message {
   id             String       @id @default(uuid())
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id])
-  role           String       // "user" | "assistant"
+  role           String
   content        String       @db.Text
   createdAt      DateTime     @default(now())
 }

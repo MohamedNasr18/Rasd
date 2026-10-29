@@ -73,6 +73,7 @@ export interface SiteScanListItem {
   averageScore: number | null;
   pageCount: number;
   completedPages: number;
+  successfulPages: number;
   reportStatus: ReportStatus;
   createdAt: string;
   site: { id: string; url: string };
@@ -112,6 +113,36 @@ export interface ChatMessage {
 export interface ChatReply {
   conversationId: string;
   reply: string;
+}
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  emailVerified: boolean;
+}
+
+export interface AuthMeResponse {
+  user: AuthUser | null;
+  guestScanPending: boolean;
+}
+
+export interface AuthSessionResponse {
+  user: AuthUser;
+  migratedGuestScans: number;
+  guestMigrationPending: boolean;
+}
+
+export interface SignupResponse {
+  email: string;
+  requiresVerification: boolean;
+  expiresInSeconds: number;
+  resendCooldownSeconds: number;
+}
+
+export interface AuthConfigResponse {
+  googleClientId: string | null;
 }
 
 export type CheckStatus = 'pass' | 'warning' | 'fail' | 'unknown';

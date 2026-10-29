@@ -29,6 +29,6 @@ export interface PageSpeedLoadingExperience {
 
 export interface PageSpeedInsightsResponse {
   lighthouseResult?: PageSpeedLighthouseResult;
-  loadingExperience?: PageSpeedLoadingExperience;       
-  originLoadingExperience?: PageSpeedLoadingExperience;  
+  loadingExperience?: PageSpeedLoadingExperience;
+  originLoadingExperience?: PageSpeedLoadingExperience;
 }

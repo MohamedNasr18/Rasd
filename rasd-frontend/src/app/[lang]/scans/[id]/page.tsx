@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   useGetScoreHistoryQuery,
@@ -7,6 +7,7 @@ import {
   useStartScanMutation,
 } from '@/store/api';
 import { countStatuses, scoreColor } from '@/lib/checks';
+import { trendView } from '@/lib/trend';
 import CheckList from '@/components/CheckList';
 import PagesTable from '@/components/PagesTable';
 import StatusChart from '@/components/StatusChart';
@@ -15,6 +16,7 @@ import ReportSection from '@/components/ReportSection';
 import ChatPanel from '@/components/ChatPanel';
 import Header from '@/components/Header';
 import LocaleLink from '@/components/LocaleLink';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatDateMedium } from '@/i18n/format';
 import type { PageStage, Scan, ScanStatus } from '@/types';
@@ -320,9 +322,14 @@ export default function ScanPage() {
   const { locale, dir, dict } = useI18n();
   const copy = dict.scan;
   const { data, isLoading, error, refetch } = useGetSiteScanQuery(id);
-  const { data: history } = useGetScoreHistoryQuery(id);
+  const {
+    data: history,
+    isLoading: historyLoading,
+    refetch: refetchHistory,
+  } = useGetScoreHistoryQuery(id);
   const [startScan, { isLoading: retrying }] = useStartScanMutation();
   const [retryError, setRetryError] = useState(false);
+  const { user, loading: authLoading, openAuth } = useAuth();
 
   useEffect(() => {
     if (data?.status !== 'processing') return;
@@ -330,9 +337,41 @@ export default function ScanPage() {
     return () => clearInterval(timer);
   }, [data?.status, refetch]);
 
+  const wasProcessing = useRef(false);
+  const lastUserId = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (data?.status === 'processing') {
+      wasProcessing.current = true;
+      return;
+    }
+    if (data?.status === 'completed' && wasProcessing.current) {
+      wasProcessing.current = false;
+      void refetchHistory();
+    }
+  }, [data?.status, refetchHistory]);
+
+  useEffect(() => {
+    const id = user?.id ?? null;
+    if (lastUserId.current === undefined) {
+      lastUserId.current = id;
+      return;
+    }
+    if (id && lastUserId.current !== id) {
+      void refetch();
+      void refetchHistory();
+    }
+    lastUserId.current = id;
+  }, [user?.id, refetch, refetchHistory]);
+
   const elapsed = useElapsed(data?.createdAt, data?.status === 'processing');
   const now = useNow(data?.status === 'processing');
   const progressRows = data?.progress ?? [];
+
+  const trendState = trendView({
+    loading: historyLoading || authLoading,
+    signedIn: Boolean(user),
+    pointCount: history?.points.length ?? 0,
+  });
 
   const scans = useMemo(() => data?.scans ?? [], [data]);
 
@@ -939,7 +978,7 @@ export default function ScanPage() {
                               />
                             );
                           })
-                        : // Scans started before progress tracking existed.
+                        :
                           latestScans.slice(0, 4).map((scan) => (
                             <TaskRow
                               key={scan.id}
@@ -1205,9 +1244,7 @@ export default function ScanPage() {
                     >
                       {history?.url ?? ''}
                     </p>
-                    {history ? (
-                      <ScoreTrendChart points={history.points} />
-                    ) : (
+                    {trendState === 'loading' ? (
                       <p
                         style={{
                           padding: '24px 0',
@@ -1217,6 +1254,49 @@ export default function ScanPage() {
                         }}
                       >
                         {dict.common.loading}
+                      </p>
+                    ) : trendState === 'guest-empty' ? (
+                      <div
+                        style={{
+                          display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 12,
+                          padding: '16px', borderRadius: 10,
+                          backgroundColor: '#eff6ff', border: '1px solid #bfdbfe',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 20, color: '#1d4ed8' }}>insights</span>
+                          <p style={{ margin: 0, fontSize: 13, lineHeight: '24px', color: '#1e3a8a' }}>
+                            {dict.trend.emptyGuest}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openAuth('login')}
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6,
+                            height: 34, padding: '0 14px', borderRadius: 8,
+                            backgroundColor: 'var(--color-primary-container)',
+                            color: 'var(--color-on-primary)', border: 'none', cursor: 'pointer',
+                            fontSize: 12, fontWeight: 600,
+                          }}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>login</span>
+                          {dict.trend.emptyCta}
+                        </button>
+                      </div>
+                    ) : trendState === 'chart' && history ? (
+                      <ScoreTrendChart points={history.points} />
+                    ) : (
+                      <p
+                        style={{
+                          margin: 0, padding: '16px', borderRadius: 10,
+                          fontSize: 13, lineHeight: '24px',
+                          color: 'var(--color-on-surface-variant)',
+                          backgroundColor: 'var(--color-surface-container-low)',
+                          border: '1px solid color-mix(in srgb, var(--color-outline-variant) 50%, transparent)',
+                        }}
+                      >
+                        {dict.trend.emptyUser}
                       </p>
                     )}
                   </section>

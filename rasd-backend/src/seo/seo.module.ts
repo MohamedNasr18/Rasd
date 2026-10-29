@@ -7,10 +7,12 @@ import { RendererService } from './renderer.service.js';
 import { SeoProcessor } from './seo.processor.js';
 import { SiteCrawlerService } from './site-crawler.service.js';
 import { SiteAggregationProcessor } from './site-aggregation.processor.js';
+import { AuthModule } from '../auth/auth.module.js';
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: 'seo-analysis' }, { name: 'site-aggregation' }),
+    AuthModule,
   ],
   controllers: [SeoController],
   providers: [

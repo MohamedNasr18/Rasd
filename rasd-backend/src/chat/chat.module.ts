@@ -5,9 +5,10 @@ import { ChatAgentService } from './chat-agent.service.js';
 import { KnowledgeBaseService } from './knowledge-base.service.js';
 import { SeoModule } from '../seo/seo.module.js';
 import { ReportModule } from '../report/report.module.js';
+import { AuthModule } from '../auth/auth.module.js';
 
 @Module({
-  imports: [SeoModule, ReportModule], 
+  imports: [SeoModule, ReportModule, AuthModule],
   controllers: [ChatController],
   providers: [ChatService, ChatAgentService, KnowledgeBaseService],
 })

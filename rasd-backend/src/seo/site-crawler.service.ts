@@ -3,7 +3,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { parseSitemapXml, parseRobotsSitemaps } from './sitemap.utils.js';
 
-const DEFAULT_MAX_PAGES = 3; 
+const DEFAULT_MAX_PAGES = 3;
 const CRAWL_DELAY_MS = 600;
 const MAX_CHILD_SITEMAPS = 5;
 
@@ -18,7 +18,6 @@ export class SiteCrawlerService {
 
     const fromSitemap = await this.tryGetSitemapUrls(base, maxPages, disallowedPaths);
     if (fromSitemap.length > 0) {
-      // Always include the page the user asked for; the sitemap fills the rest.
       const pages = [start, ...fromSitemap.filter((url) => url !== start)].slice(0, maxPages);
       this.logger.log(`Discovered ${pages.length} pages (start URL + sitemap)`);
       return pages;
@@ -74,7 +73,6 @@ export class SiteCrawlerService {
 
       let urls = parsed.urls;
 
-      // A sitemap index holds no <url> entries of its own — read its children.
       if (parsed.kind === 'sitemapindex') {
         const children = parsed.children.filter((u) => /^https?:\/\//i.test(u)).slice(0, MAX_CHILD_SITEMAPS);
         const childResults = await Promise.allSettled(
@@ -98,12 +96,11 @@ export class SiteCrawlerService {
           if (!this.isAllowed(new URL(u).pathname, disallowedPaths)) continue;
           seen.add(normalized);
           allowed.push(normalized);
-        } catch { /* skip malformed */ }
+        } catch { }
       }
 
       if (allowed.length > 0) return allowed.slice(0, maxPages);
     } catch {
-      // try the next candidate
     }
   }
 
@@ -133,7 +130,7 @@ export class SiteCrawlerService {
 private async crawlInternalLinks(startUrl: string, maxPages: number, disallowedPaths: string[]): Promise<string[]> {
   const base = new URL(startUrl);
   const visited = new Set<string>();
-  const queue: string[] = [this.normalizeUrl(startUrl)];   
+  const queue: string[] = [this.normalizeUrl(startUrl)];
   const discovered: string[] = [];
 
   while (queue.length > 0 && discovered.length < maxPages) {
@@ -157,10 +154,10 @@ private async crawlInternalLinks(startUrl: string, maxPages: number, disallowedP
           const isAllowedPath = this.isAllowed(resolved.pathname, disallowedPaths);
 
           if (isSameHost && !isAssetFile && isAllowedPath) {
-            const clean = this.normalizeUrl(resolved.href);  
+            const clean = this.normalizeUrl(resolved.href);
             if (!visited.has(clean)) queue.push(clean);
           }
-        } catch { /* ignore malformed hrefs */ }
+        } catch { }
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
