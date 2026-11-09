@@ -1,6 +1,7 @@
 FROM node:24-bookworm-slim
 
-ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
+ENV PUPPETEER_CACHE_DIR=/app/.puppeteer-cache
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV DATABASE_URL=postgresql://build:build@localhost:5432/build
 ENV CHECKPOINT_DISABLE=1
 
@@ -16,8 +17,12 @@ WORKDIR /app
 
 COPY package.json package-lock.json .npmrc prisma.config.ts ./
 COPY prisma ./prisma
-RUN npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
+
+RUN npm ci --include=dev --legacy-peer-deps --no-audit --no-fund --ignore-scripts
 RUN ./node_modules/.bin/prisma generate
+
+RUN rm -rf /app/.puppeteer-cache \
+    && PUPPETEER_SKIP_DOWNLOAD= npx puppeteer browsers install chrome
 
 COPY . .
 RUN npm run build && chmod +x docker-entrypoint.sh
