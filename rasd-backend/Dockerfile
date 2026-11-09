@@ -14,9 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY package.json package-lock.json prisma.config.ts ./
+COPY package.json package-lock.json .npmrc prisma.config.ts ./
 COPY prisma ./prisma
-RUN npm ci && npx prisma generate
+RUN npm ci --legacy-peer-deps && npx prisma generate
 
 COPY . .
 RUN npm run build && chmod +x docker-entrypoint.sh
