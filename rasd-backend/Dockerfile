@@ -16,7 +16,8 @@ WORKDIR /app
 
 COPY package.json package-lock.json .npmrc prisma.config.ts ./
 COPY prisma ./prisma
-RUN npm ci --legacy-peer-deps && npx prisma generate
+RUN npm ci --include=dev --legacy-peer-deps --no-audit --no-fund
+RUN ./node_modules/.bin/prisma generate
 
 COPY . .
 RUN npm run build && chmod +x docker-entrypoint.sh
